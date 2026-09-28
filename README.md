@@ -1,6 +1,7 @@
 CampusClaw 迭代 1 把教研材料按班级放进可登录的知识库底座，教师上传，学生只读本班内容。
 场景：教师登录后上传 txt 或 md，本班列表和知识库立刻能查到；学生只能查看和下载本班材料。
-不做：检索问答、向量检索、对话助手、作业批改、注册改密、JWT/SSO、平台超级管理员、多副本和公网 HTTPS。
+迭代 2 的需求已经写进 OpenSpec 变更 `add-traceable-vector-retrieval`：本班知识库检索、三种模式、出处可回溯、没有依据不生成。实现按该变更的 `tasks.md` 进行。
+不做：作业批改、注册改密、JWT/SSO、平台超级管理员、多副本和公网 HTTPS。检索的边界以该变更的 Non-goals 为准。
 
 ## 范围
 
@@ -8,8 +9,9 @@ CampusClaw 迭代 1 把教研材料按班级放进可登录的知识库底座，
 
 ## 不做
 
-- 知识库问答、RAG、跨班全文检索。页面上的搜索只过滤本班已经入库的标题和正文。
-- 对话助手、作业布置与批改、成绩和错题本。
+- 跨班全文检索。检索只在会话所属班级内进行。
+- 流式长对话、作业布置与批改、成绩和错题本。
+- 把 Qdrant 或模型网关暴露给浏览器。
 - JWT、OAuth、校园 SSO、注册和改密。
 - PDF / Word、Kubernetes、公网域名和 HTTPS。
 - 平台超级管理员。这个角色会跨班看数据，和「跨班返回 404」冲突，留到以后单独做。
@@ -74,6 +76,19 @@ python3 scripts/verify.py
 
 脚本会按上面的场景请求本机 Compose，并把不含口令的结果写到 `docs/verification.md`。
 
+## 第 4 课变更
+
+活动变更在 `openspec/changes/add-traceable-vector-retrieval/`：
+
+- `proposal.md`：为什么做、做什么、不做什么
+- `design.md`：MySQL 存切片正文，Qdrant 存向量，混合检索用 RRF
+- `specs/knowledge-retrieval/spec.md`：可判定的 Requirement 与 Scenario
+- `specs/auth-upload/spec.md`：上传成功后必须建索引
+- `tasks.md`：实现顺序，目前全部未勾选
+
+校验：`openspec validate add-traceable-vector-retrieval --strict`
+
 ## 提交
 
-把这个 Git 仓库的地址交给课程的作业回收系统。课件没有给出该系统的入口。请同学用你的预置账号试一条跨班材料 URL，并在迭代说明里记下结果。
+公开仓库：https://github.com/HanoFleet/campusclaw
+
