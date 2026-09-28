@@ -35,11 +35,25 @@ services:
       LOGIN_FAIL_THRESHOLD: ${LOGIN_FAIL_THRESHOLD:?LOGIN_FAIL_THRESHOLD is required}
       LOGIN_LOCK_MINUTES: ${LOGIN_LOCK_MINUTES:?LOGIN_LOCK_MINUTES is required}
       API_ADDR: ":8080"
+      QDRANT_URL: ${QDRANT_URL:?QDRANT_URL is required}
+      EMBEDDING_URL: ${EMBEDDING_URL:?EMBEDDING_URL is required}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:?EMBEDDING_API_KEY is required}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:?EMBEDDING_MODEL is required}
+      CHAT_URL: ${CHAT_URL:?CHAT_URL is required}
+      CHAT_API_KEY: ${CHAT_API_KEY:?CHAT_API_KEY is required}
+      CHAT_MODEL: ${CHAT_MODEL:?CHAT_MODEL is required}
     volumes:
       - uploads:/data/uploads
     depends_on:
       db:
         condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    volumes:
+      - qdrant_data:/qdrant/storage
 
   web:
     build: ./frontend
@@ -51,3 +65,4 @@ services:
 volumes:
   db_data:
   uploads:
+  qdrant_data:

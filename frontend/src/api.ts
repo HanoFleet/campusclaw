@@ -48,6 +48,28 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+export type SearchHit = {
+  material_id: number;
+  title: string;
+  chunk_index: number;
+  start: number;
+  end: number;
+  excerpt: string;
+  score?: number;
+  rank?: number;
+};
+
+export type SearchResult = {
+  mode: "keyword" | "vector" | "hybrid";
+  message?: string;
+  hits: SearchHit[];
+};
+
+export type AskResult = {
+  answer: string;
+  citations: SearchHit[];
+};
+
 export function getMe() {
   return api<Me>("/api/me");
 }

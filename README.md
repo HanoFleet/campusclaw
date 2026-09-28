@@ -1,20 +1,17 @@
-CampusClaw 迭代 1 把教研材料按班级放进可登录的知识库底座，教师上传，学生只读本班内容。
-场景：教师登录后上传 txt 或 md，本班列表和知识库立刻能查到；学生只能查看和下载本班材料。
-迭代 2 的需求已经写进 OpenSpec 变更 `add-traceable-vector-retrieval`：本班知识库检索、三种模式、出处可回溯、没有依据不生成。实现按该变更的 `tasks.md` 进行。
-不做：作业批改、注册改密、JWT/SSO、平台超级管理员、多副本和公网 HTTPS。检索的边界以该变更的 Non-goals 为准。
+CampusClaw 把教研材料按班级放进可登录的知识库。教师上传 txt 或 md，本班学生只读；上传后正文切成切片，本班可以用关键字、向量或混合检索，命中能回到原文。没有依据时不生成回答。
 
 ## 范围
 
-这一版只做登录、教师/学生两种角色、按班级隔离、把 `.txt` / `.md` 上传进知识库，并用 Docker Compose 在本机跑起来。界面是否好看不作为安全验收；用 curl 仍能跨班读取或让学生上传成功，就不算完成。
+这一版做登录、教师/学生两种角色、按班级隔离、材料入库，以及本班可追溯检索。界面是否好看不作为安全验收；用 curl 仍能跨班读到材料，或检索到其他班的切片，就不算完成。
 
-## 不做
+## 检索
 
-- 跨班全文检索。检索只在会话所属班级内进行。
-- 流式长对话、作业布置与批改、成绩和错题本。
-- 把 Qdrant 或模型网关暴露给浏览器。
-- JWT、OAuth、校园 SSO、注册和改密。
-- PDF / Word、Kubernetes、公网域名和 HTTPS。
-- 平台超级管理员。这个角色会跨班看数据，和「跨班返回 404」冲突，留到以后单独做。
+- 三种模式：`keyword` 只查 MySQL 全文；`vector` 问句嵌入后查 Qdrant；`hybrid` 两路先过滤再用 RRF（k=60）。默认混合。
+- 班级只来自登录会话。请求里的 `class_id` 丢掉。A 班搜 B 班独有词得到 200 和空 `hits`，不返回 403。
+- 切片正文在 `knowledge_chunks`，向量在 Qdrant，主键相同。摘录取自 MySQL。
+- 没有候选切片时返回「资料中未找到相关内容」，不凑数，也不调用对话模型。
+- Qdrant 和模型网关不映射到宿主，浏览器只打本站 `/api`。
+- `EMBEDDING_URL=local`、`CHAT_URL=local` 时在进程内完成嵌入和摘录式回答，不把密钥写进源码。换成课程网关时只改 `.env`。
 
 ## 单实例
 
@@ -31,6 +28,7 @@ CampusClaw 迭代 1 把教研材料按班级放进可登录的知识库底座，
 ```bash
 cp .env.example .env
 # 填写 SESSION_SECRET、MYSQL_ROOT_PASSWORD、DB_PASSWORD 和三个 SEED_*_PASSWORD
+# 检索相关项可先保持 .env.example 里的 local / Qdrant 地址
 # SESSION_SECRET 至少 16 个字符，每个口令至少 8 个字符
 docker compose up --build -d
 docker compose ps
@@ -47,7 +45,7 @@ docker compose ps
 docker compose exec db mysql -u"$DB_USER" -p"$DB_PASSWORD" campusclaw
 ```
 
-`docker compose down` 之后再 `up`（不要加 `-v`）会保留数据库和已上传文件。`-v` 会清空卷，只在想重置时使用。
+`docker compose down` 之后再 `up`（不要加 `-v`）会保留数据库、已上传文件和 Qdrant 向量。`-v` 会清空卷，只在想重置时使用。Qdrant 没有宿主端口。
 
 ## 预置账号
 
@@ -57,11 +55,11 @@ docker compose exec db mysql -u"$DB_USER" -p"$DB_PASSWORD" campusclaw
 | `student_a1` | 学生 | A | `SEED_STUDENT_A_PASSWORD` |
 | `student_b1` | 学生 | B | `SEED_STUDENT_B_PASSWORD` |
 
-预置材料标题是「A班-函数单调性讲义」和「B班-牛顿定律笔记」。A 班搜索「牛顿定律」应当没有结果。
+预置材料标题是「A班-函数单调性讲义」和「B班-牛顿定律笔记」。A 班检索「牛顿定律」应当 `hits` 为空。接口是 `POST /api/search` 和 `POST /api/ask`。
 
 ## 设计决策
 
-完整记录在 `openspec/changes/archive/2026-09-23-add-auth-rbac-class-knowledge/design.md`。当前生效的行为在 `openspec/specs/auth-upload/spec.md`。四项发布时要对得上实现：
+完整记录在 `openspec/changes/archive/2026-09-23-add-auth-rbac-class-knowledge/design.md`。当前生效的行为在 `openspec/specs/auth-upload/spec.md` 与 `openspec/specs/knowledge-retrieval/spec.md`。四项发布时要对得上实现：
 
 1. 班级只来自服务端会话。请求里自带的 `class_id` 不影响列表和入库。
 2. 跨班一律 404，和记录不存在同形。
@@ -78,15 +76,7 @@ python3 scripts/verify.py
 
 ## 第 4 课变更
 
-活动变更在 `openspec/changes/add-traceable-vector-retrieval/`：
-
-- `proposal.md`：为什么做、做什么、不做什么
-- `design.md`：MySQL 存切片正文，Qdrant 存向量，混合检索用 RRF
-- `specs/knowledge-retrieval/spec.md`：可判定的 Requirement 与 Scenario
-- `specs/auth-upload/spec.md`：上传成功后必须建索引
-- `tasks.md`：实现顺序，目前全部未勾选
-
-校验：`openspec validate add-traceable-vector-retrieval --strict`
+变更 `add-traceable-vector-retrieval` 已实现并归档到 `openspec/changes/archive/2026-09-28-add-traceable-vector-retrieval/`。长期规约在 `openspec/specs/knowledge-retrieval/spec.md`。
 
 ## 提交
 

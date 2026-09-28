@@ -10,7 +10,11 @@ import (
 	"time"
 
 	"campusclaw/internal/auth"
+	"campusclaw/internal/chat"
 	"campusclaw/internal/config"
+	"campusclaw/internal/embed"
+	"campusclaw/internal/qdrant"
+	"campusclaw/internal/retrieval"
 )
 
 const cookieName = "campusclaw_session"
@@ -28,14 +32,18 @@ type Server struct {
 	db      *sql.DB
 	limiter *auth.Limiter
 	mux     *http.ServeMux
+	retr    *retrieval.Service
 }
 
 func New(cfg config.Config, db *sql.DB) *Server {
+	emb := embed.New(cfg.EmbeddingURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel)
+	qd := qdrant.New(cfg.QdrantURL, emb.Dim())
 	s := &Server{
 		cfg:     cfg,
 		db:      db,
 		limiter: auth.NewLimiter(),
 		mux:     http.NewServeMux(),
+		retr:    retrieval.New(db, emb, qd, chat.New(cfg.ChatURL, cfg.ChatAPIKey, cfg.ChatModel)),
 	}
 	s.mux.HandleFunc("GET /health", s.health)
 	s.mux.HandleFunc("POST /api/login", s.login)
@@ -45,7 +53,17 @@ func New(cfg config.Config, db *sql.DB) *Server {
 	s.mux.HandleFunc("POST /api/materials", s.uploadMaterial)
 	s.mux.HandleFunc("GET /api/materials/{id}", s.getMaterial)
 	s.mux.HandleFunc("GET /api/materials/{id}/file", s.getMaterialFile)
+	s.mux.HandleFunc("POST /api/materials/{id}/reindex", s.reindex)
+	s.mux.HandleFunc("POST /api/search", s.search)
+	s.mux.HandleFunc("POST /api/ask", s.ask)
 	return s
+}
+
+func (s *Server) Backfill(ctx context.Context) error {
+	if s.retr == nil {
+		return nil
+	}
+	return s.retr.Backfill(ctx)
 }
 
 func (s *Server) Handler() http.Handler { return s.mux }

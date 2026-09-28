@@ -110,6 +110,53 @@ input:focus { outline: 2px solid color-mix(in srgb, var(--red) 55%, white); }
 .card { text-align: left; border-radius: 14px; display: grid; gap: 6px; background: var(--paper); }
 .card.active { border-color: var(--red); }
 .card time { color: var(--muted); font-size: 0.8rem; }
+.retrieve { margin-top: 16px; display: grid; gap: 8px; }
+.retrieve-label { font-size: 0.85rem; color: var(--muted); }
+.retrieve-row { display: flex; gap: 8px; }
+.retrieve-row input { flex: 1; border-radius: 999px; }
+.retrieve-row select {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 999px;
+  padding: 8px 10px;
+}
+.retrieve-actions { display: flex; gap: 8px; }
+.retrieve-actions button {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 999px;
+  padding: 8px 12px;
+}
+.retrieve-message { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.hits { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hits button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+.hits span, .hits em { color: var(--muted); font-size: 0.82rem; font-style: normal; }
+.hits em { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.answer {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.answer h3 { margin: 0 0 8px; font-size: 0.95rem; }
+.answer p { margin: 0; line-height: 1.65; }
+.detail-actions { display: flex; gap: 10px; align-items: center; }
+.detail-actions button {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 999px;
+  padding: 6px 10px;
+}
 .detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
 .detail h2 { font-family: "Iowan Old Style", "Songti SC", serif; margin-top: 0; }
 .markdown { line-height: 1.7; }

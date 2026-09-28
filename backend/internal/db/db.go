@@ -133,6 +133,25 @@ func Migrate(ctx context.Context, conn *sql.DB) error {
 			id BIGINT PRIMARY KEY AUTO_INCREMENT,
 			name VARCHAR(255) NOT NULL
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS knowledge_chunks (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			class_id BIGINT NOT NULL,
+			material_id BIGINT NOT NULL,
+			knowledge_entry_id BIGINT NOT NULL,
+			chunk_index INT NOT NULL,
+			chunk_text MEDIUMTEXT NOT NULL,
+			start_offset INT NOT NULL,
+			end_offset INT NOT NULL,
+			index_status ENUM('pending','ready','failed') NOT NULL,
+			strategy VARCHAR(32) NOT NULL,
+			created_at DATETIME NOT NULL,
+			INDEX idx_chunks_class (class_id),
+			INDEX idx_chunks_material (material_id),
+			FULLTEXT KEY ft_chunk_text (chunk_text) WITH PARSER ngram,
+			CONSTRAINT fk_chunks_class FOREIGN KEY (class_id) REFERENCES classes(id),
+			CONSTRAINT fk_chunks_material FOREIGN KEY (material_id) REFERENCES materials(id),
+			CONSTRAINT fk_chunks_entry FOREIGN KEY (knowledge_entry_id) REFERENCES knowledge_entries(id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	}
 	for _, stmt := range stmts {
 		if _, err := conn.ExecContext(ctx, stmt); err != nil {

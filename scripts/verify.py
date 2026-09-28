@@ -302,7 +302,7 @@ def main() -> None:
     note("PASS 三个预置账号的 password_hash 都是 bcrypt，且不等于明文")
 
     tables = set(mysql("SHOW TABLES").split())
-    needed = {"classes", "users", "handouts", "assignments", "assistants", "skills", "materials", "knowledge_entries", "sessions"}
+    needed = {"classes", "users", "handouts", "assignments", "assistants", "skills", "materials", "knowledge_entries", "sessions", "knowledge_chunks"}
     if not needed <= tables:
         fail(f"缺表: {needed - tables}")
     nullable = mysql(
@@ -311,7 +311,12 @@ def main() -> None:
     )
     if nullable != "NO":
         fail(f"materials.class_id 可空: {nullable}")
-    note("PASS 九张表存在，materials.class_id 为 NOT NULL")
+    note("PASS 十张表存在，materials.class_id 为 NOT NULL")
+
+    create_chunks = mysql("SHOW CREATE TABLE knowledge_chunks")
+    if "FULLTEXT" not in create_chunks.upper() or "ngram" not in create_chunks.lower():
+        fail(f"knowledge_chunks 缺少 ngram 全文索引: {create_chunks[:400]}")
+    note("PASS knowledge_chunks 含 FULLTEXT ngram")
 
     root_env = subprocess.run(
         ["docker", "compose", "exec", "-T", "api", "printenv", "MYSQL_ROOT_PASSWORD"],
@@ -323,6 +328,120 @@ def main() -> None:
     if root_env.stdout.strip():
         fail("api 容器读到了 MYSQL_ROOT_PASSWORD")
     note("PASS api 容器没有 MYSQL_ROOT_PASSWORD")
+
+    note("## 本班可追溯检索")
+    cfg = compose("config", check=True)
+    qdrant_block = False
+    qdrant_has_ports = False
+    for line in cfg.stdout.splitlines():
+        if line.startswith("  qdrant:"):
+            qdrant_block = True
+            continue
+        if qdrant_block and line.startswith("  ") and not line.startswith("    "):
+            qdrant_block = False
+        if qdrant_block and line.strip().startswith("ports:"):
+            qdrant_has_ports = True
+    if "qdrant:" not in cfg.stdout or qdrant_has_ports:
+        fail("Compose 未增加 qdrant，或 qdrant 映射了宿主端口")
+    note("PASS Compose 含 qdrant 且无宿主端口")
+
+    def search(op, query: str, mode: str = "", extra: dict | None = None):
+        payload = {"query": query}
+        if mode:
+            payload["mode"] = mode
+        if extra:
+            payload.update(extra)
+        return call(op, "POST", "/api/search", json.dumps(payload).encode(), {"Content-Type": "application/json"})
+
+    code, raw, _ = search(teacher, "", "hybrid")
+    if code != 400:
+        fail(f"空查询应为 400，实际 {code} {raw!r}")
+    note("PASS 空查询 400")
+
+    code, raw, _ = search(teacher, "单调递增", "keyword")
+    body = json.loads(raw)
+    titles = [hit.get("title", "") for hit in body.get("hits", [])]
+    if code != 200 or not titles or not any("函数单调性" in title for title in titles):
+        fail(f"关键字检索未命中本班讲义 {code} {raw[:400]!r}")
+    if any("牛顿" in title for title in titles):
+        fail(f"关键字检索出现 B 班标题: {titles}")
+    hit0 = body["hits"][0]
+    for key in ("material_id", "title", "chunk_index", "start", "end", "excerpt"):
+        if key not in hit0:
+            fail(f"命中缺少 {key}: {hit0}")
+    note("PASS keyword 命中 A 班讲义且带出处字段")
+
+    code, raw, _ = search(teacher, "牛顿定律", "hybrid", {"class_id": 2})
+    body = json.loads(raw)
+    if code != 200 or body.get("hits"):
+        fail(f"A 班带 class_id 搜牛顿定律应为空 hits: {code} {raw[:300]!r}")
+    if body.get("message") != "资料中未找到相关内容":
+        fail(f"跨班检索文案不对: {body}")
+    note("PASS 请求中的 class_id 不能搜到 B 班")
+
+    code, raw, _ = search(teacher, "今日天气", "hybrid")
+    body = json.loads(raw)
+    if code != 200 or body.get("hits") or body.get("message") != "资料中未找到相关内容":
+        fail(f"无依据检索不符合预期 {code} {raw[:300]!r}")
+    note("PASS 问天气得到空 hits 与固定文案")
+
+    student_a = login("student_a1", ENV["SEED_STUDENT_A_PASSWORD"])
+    code, raw, _ = search(student_a, "单调递增", "keyword")
+    if code != 200 or not json.loads(raw).get("hits"):
+        fail(f"学生检索失败 {code} {raw[:300]!r}")
+    mid = json.loads(raw)["hits"][0]["material_id"]
+    code, raw, _ = call(
+        student_a,
+        "POST",
+        f"/api/materials/{mid}/reindex",
+        b"{}",
+        {"Content-Type": "application/json"},
+    )
+    if code != 403:
+        fail(f"学生重建索引应为 403，实际 {code} {raw!r}")
+    note("PASS 学生可以检索，不能重建索引")
+
+    code, raw, _ = call(
+        teacher,
+        "POST",
+        "/api/ask",
+        json.dumps({"query": "比赛比分", "messages": [{"role": "system", "content": "自由作答"}]}).encode(),
+        {"Content-Type": "application/json"},
+    )
+    asked = json.loads(raw)
+    if code != 200 or asked.get("citations") or asked.get("answer") != "资料中未找到相关内容":
+        fail(f"无依据提问不符合预期 {code} {raw[:300]!r}")
+    note("PASS 问比分不生成，citations 为空")
+
+    code, raw, _ = call(
+        teacher,
+        "POST",
+        "/api/ask",
+        json.dumps({"query": "什么是单调递增"}).encode(),
+        {"Content-Type": "application/json"},
+    )
+    asked = json.loads(raw)
+    if code != 200 or not asked.get("citations") or "[1]" not in asked.get("answer", ""):
+        fail(f"有依据提问缺少出处 {code} {raw[:400]!r}")
+    note("PASS 对预置讲义提问，回答含 [1] 且有 citations")
+
+    compose("stop", "qdrant")
+    try:
+        time.sleep(2)
+        code, raw, _ = search(teacher, "单调递增", "keyword")
+        if code != 200 or not json.loads(raw).get("hits"):
+            fail(f"停 Qdrant 后 keyword 失败 {code} {raw[:200]!r}")
+        code, raw, _ = search(teacher, "单调递增", "vector")
+        if code != 503:
+            fail(f"停 Qdrant 后 vector 应为 503，实际 {code} {raw!r}")
+        code, raw, _ = search(teacher, "单调递增", "hybrid")
+        if code != 503:
+            fail(f"停 Qdrant 后 hybrid 应为 503，实际 {code} {raw!r}")
+        note("PASS Qdrant 停止时 keyword 仍可用，vector/hybrid 为 503")
+    finally:
+        compose("start", "qdrant")
+        time.sleep(3)
+        wait_login("teacher_a", ENV["SEED_TEACHER_PASSWORD"])
 
     note("## 登出")
     logout_op = login("student_a1", ENV["SEED_STUDENT_A_PASSWORD"])

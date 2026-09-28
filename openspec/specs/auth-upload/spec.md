@@ -82,7 +82,7 @@
 
 ### Requirement: 材料上传与知识库入库
 
-教师上传成功时，系统 MUST 在校验通过后把原文件写入上传目录，并在同一数据库事务中插入 `materials` 与 `knowledge_entries`。扩展名 MUST 使用白名单 `.txt` 与 `.md`。超过配置上限 MUST 返回 413。空文件或非 UTF-8 MUST 返回 400。任一失败路径 MUST NOT 留下材料行、知识库行或未关联文件。存储名 MUST 由服务端生成。
+教师上传成功时，系统 MUST 在校验通过后把原文件写入上传目录，并在同一数据库事务中插入 `materials` 与 `knowledge_entries`。该事务提交之后，系统 MUST 按切分策略把正文写入 `knowledge_chunks` 并建立向量索引，规则见 `knowledge-retrieval`。扩展名 MUST 使用白名单 `.txt` 与 `.md`。超过配置上限 MUST 返回 413。空文件或非 UTF-8 MUST 返回 400。上传事务失败时 MUST NOT 留下材料行、知识库行或未关联文件。存储名 MUST 由服务端生成。
 
 #### Scenario: 上传后知识库与列表可查
 
@@ -108,6 +108,12 @@
 - **WHEN** 教师上传成功后，同班学生刷新列表，其他班用户按 id 访问该材料
 - **THEN** 同班学生能在列表中看到该标题并下载原文件
 - **AND** 其他班用户得到 404
+
+#### Scenario: 上传成功后本班可检索正文
+
+- **WHEN** 教师上传成功且切片索引状态为 ready
+- **THEN** 本班用户用原文中的词做 `keyword` 检索能得到该材料的命中
+- **AND** 其他班用户用同一词检索时 `hits` 不含该材料
 
 ### Requirement: 材料读取与下载
 

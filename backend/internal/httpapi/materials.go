@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"campusclaw/internal/chunk"
 	"campusclaw/internal/materials"
 )
 
@@ -247,6 +248,11 @@ func (s *Server) uploadMaterial(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(full)
 		writeError(w, http.StatusServiceUnavailable, "unavailable")
 		return
+	}
+	if s.retr != nil {
+		if indexErr := s.retr.IndexMaterial(r.Context(), id, chunk.Options{Strategy: chunk.StrategyAuto}); indexErr != nil {
+			log.Printf("index material %d after upload: %v", id, indexErr)
+		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "title": title})
 }

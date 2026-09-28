@@ -25,6 +25,13 @@ type Config struct {
 	LoginFailThreshold   int
 	LoginLock            time.Duration
 	APIAddr              string
+	QdrantURL            string
+	EmbeddingURL         string
+	EmbeddingAPIKey      string
+	EmbeddingModel       string
+	ChatURL              string
+	ChatAPIKey           string
+	ChatModel            string
 }
 
 func Load() (Config, error) {
@@ -49,6 +56,13 @@ func Load() (Config, error) {
 		SeedStudentAPassword: need("SEED_STUDENT_A_PASSWORD"),
 		SeedStudentBPassword: need("SEED_STUDENT_B_PASSWORD"),
 		APIAddr:              need("API_ADDR"),
+		QdrantURL:            need("QDRANT_URL"),
+		EmbeddingURL:         need("EMBEDDING_URL"),
+		EmbeddingAPIKey:      need("EMBEDDING_API_KEY"),
+		EmbeddingModel:       need("EMBEDDING_MODEL"),
+		ChatURL:              need("CHAT_URL"),
+		ChatAPIKey:           need("CHAT_API_KEY"),
+		ChatModel:            need("CHAT_MODEL"),
 	}
 	maxRaw := need("MAX_UPLOAD_BYTES")
 	ttlRaw := need("SESSION_TTL_HOURS")

@@ -8,6 +8,8 @@ func TestLoadRejectsMissingSecret(t *testing.T) {
 		"UPLOAD_DIR", "MAX_UPLOAD_BYTES", "SESSION_TTL_HOURS",
 		"SEED_TEACHER_PASSWORD", "SEED_STUDENT_A_PASSWORD", "SEED_STUDENT_B_PASSWORD",
 		"LOGIN_FAIL_THRESHOLD", "LOGIN_LOCK_MINUTES", "API_ADDR",
+		"QDRANT_URL", "EMBEDDING_URL", "EMBEDDING_API_KEY", "EMBEDDING_MODEL",
+		"CHAT_URL", "CHAT_API_KEY", "CHAT_MODEL",
 	} {
 		t.Setenv(k, "")
 	}
@@ -32,6 +34,13 @@ func TestLoadAcceptsExplicitEnv(t *testing.T) {
 	t.Setenv("LOGIN_FAIL_THRESHOLD", "5")
 	t.Setenv("LOGIN_LOCK_MINUTES", "15")
 	t.Setenv("API_ADDR", ":8080")
+	t.Setenv("QDRANT_URL", "http://qdrant:6333")
+	t.Setenv("EMBEDDING_URL", "local")
+	t.Setenv("EMBEDDING_API_KEY", "local")
+	t.Setenv("EMBEDDING_MODEL", "local-ngram-256")
+	t.Setenv("CHAT_URL", "local")
+	t.Setenv("CHAT_API_KEY", "local")
+	t.Setenv("CHAT_MODEL", "local-extractive")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)

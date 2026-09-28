@@ -3,4 +3,4 @@ schema: spec-driven
 context: |
   CampusClaw 迭代 1。浏览器只访问 Nginx，Nginx 反代 /api 与 /health 到 Go，Go 使用 MySQL 8。
   会话是 HttpOnly Cookie，班级只来自服务端会话。跨班与不存在的材料都返回同形 404。
-  标准启动方式只有 Docker Compose。不要引入 JWT、RAG、作业批改或超级管理员。
+  标准启动方式只有 Docker Compose。检索只在会话班级内进行，Qdrant 不对外。不要引入 JWT、作业批改或超级管理员。
