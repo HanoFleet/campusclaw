@@ -26,19 +26,79 @@ type Local struct{}
 
 func (Local) Calls() int64 { return 0 }
 
-func (Local) Complete(_ context.Context, _ string, _ []Message, evidence []string) (string, error) {
+func (Local) Complete(_ context.Context, userQuery string, _ []Message, evidence []string) (string, error) {
 	if len(evidence) == 0 {
 		return "资料中未找到相关内容", nil
 	}
-	var b strings.Builder
-	b.WriteString("根据本班资料：")
-	for i, item := range evidence {
-		if i > 0 {
-			b.WriteString(" ")
+	return pickAnswer(userQuery, evidence) + "[1]", nil
+}
+
+func pickAnswer(query string, evidence []string) string {
+	q := []rune(strings.TrimSpace(query))
+	best := ""
+	bestScore := 0
+	for _, item := range evidence {
+		for _, sent := range splitSentences(stripLabel(item)) {
+			score := overlap(q, []rune(sent))
+			if strings.Contains(sent, "不能") || strings.Contains(sent, "不会") {
+				score += 2
+			}
+			if score > bestScore {
+				bestScore = score
+				best = sent
+			}
 		}
-		fmt.Fprintf(&b, "[%d] %s", i+1, clip(item, 80))
 	}
-	return b.String(), nil
+	if best == "" {
+		best = clip(stripLabel(evidence[0]), 40)
+	}
+	return strings.TrimSpace(best)
+}
+
+func stripLabel(s string) string {
+	if i := strings.Index(s, "："); i >= 0 && i < 40 {
+		return s[i+len("："):]
+	}
+	return s
+}
+
+func splitSentences(s string) []string {
+	s = strings.ReplaceAll(s, "\n", "")
+	var out []string
+	var cur []rune
+	for _, r := range s {
+		cur = append(cur, r)
+		if r == '。' || r == '！' || r == '？' || r == '.' {
+			if t := strings.TrimSpace(string(cur)); t != "" {
+				out = append(out, t)
+			}
+			cur = nil
+		}
+	}
+	if t := strings.TrimSpace(string(cur)); t != "" {
+		out = append(out, t)
+	}
+	return out
+}
+
+func overlap(query, sent []rune) int {
+	if len(query) == 0 || len(sent) == 0 {
+		return 0
+	}
+	set := map[rune]bool{}
+	for _, r := range sent {
+		set[r] = true
+	}
+	n := 0
+	for _, r := range query {
+		if r == '吗' || r == '？' || r == '?' || r == '能' || r == '的' || r == '是' {
+			continue
+		}
+		if set[r] {
+			n++
+		}
+	}
+	return n
 }
 
 type HTTP struct {

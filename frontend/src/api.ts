@@ -28,12 +28,34 @@ export class ApiError extends Error {
   }
 }
 
+const tokenKey = "campusclaw_token";
+
+export function getToken() {
+  return localStorage.getItem(tokenKey) ?? "";
+}
+
+export function setToken(token: string) {
+  if (token) localStorage.setItem(tokenKey, token);
+  else localStorage.removeItem(tokenKey);
+}
+
+export function clearToken() {
+  localStorage.removeItem(tokenKey);
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
+  const token = getToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   const res = await fetch(path, { ...init, headers, credentials: "include" });
+  if (res.status === 401) {
+    clearToken();
+  }
   const text = await res.text();
   if (!res.ok) {
     let code = "request_failed";

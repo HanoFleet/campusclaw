@@ -91,10 +91,18 @@ input:focus { outline: 2px solid color-mix(in srgb, var(--red) 55%, white); }
 .who span { color: var(--muted); font-size: 0.85rem; }
 .top-actions, .toolbar { display: flex; gap: 8px; align-items: center; }
 .top-actions button, .card {
-  border: 1px solid var(--line);
-  background: transparent;
+  border: 1px solid #8a7a72;
+  background: #fffdf8;
+  color: #231815;
   border-radius: 999px;
   padding: 8px 12px;
+}
+.top-actions button.nav-ask,
+.top-actions button.primary {
+  background: #8c1515;
+  color: #ffffff;
+  border-color: #8c1515;
+  font-weight: 600;
 }
 .workspace {
   display: grid;
@@ -180,6 +188,42 @@ input:focus { outline: 2px solid color-mix(in srgb, var(--red) 55%, white); }
 .palette button, .palette input { width: 100%; text-align: left; border-radius: 10px; }
 .palette li button { border: 0; background: transparent; padding: 10px; }
 .palette li button:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
+
+.ask-shell { display: grid; grid-template-rows: auto auto auto 1fr auto; min-height: 100vh; }
+.ask-brand .ask-kicker { margin: 0; letter-spacing: 0.14em; font-size: 0.72rem; color: var(--muted); }
+.ask-brand h1 { margin: 4px 0 2px; font-family: "Iowan Old Style", "Songti SC", serif; font-size: 1.6rem; }
+.ask-brand span { color: var(--muted); font-size: 0.85rem; }
+.ask-tabs { display: flex; gap: 8px; padding: 12px 22px 0; }
+.ask-tabs button {
+  border: 0; border-radius: 999px; padding: 8px 16px;
+  background: transparent; color: var(--ink);
+}
+.ask-tabs .tab-active { background: var(--red); color: #fff8f2; }
+.ask-lede { margin: 12px 22px 0; color: var(--muted); max-width: 720px; line-height: 1.6; }
+.ask-thread { padding: 18px 22px 12px; display: grid; gap: 18px; align-content: start; }
+.ask-turn { display: grid; gap: 12px; }
+.ask-user {
+  justify-self: end; max-width: min(520px, 90%);
+  margin: 0; padding: 10px 14px; border-radius: 16px 16px 4px 16px;
+  background: var(--paper); border: 1px solid var(--line);
+}
+.ask-card {
+  background: var(--paper); border: 1px solid var(--line);
+  border-radius: 16px; padding: 16px 18px;
+}
+.ask-card h2 { margin: 0 0 10px; font-size: 0.95rem; }
+.ask-answer { margin: 0 0 12px; line-height: 1.7; font-size: 1.05rem; }
+.ask-cites { margin: 0; padding-left: 1.2rem; display: grid; gap: 10px; }
+.ask-cites button {
+  border: 0; background: transparent; padding: 0;
+  color: var(--red); text-align: left;
+}
+.ask-cites em { display: block; color: var(--muted); font-style: normal; font-size: 0.88rem; margin-top: 4px; }
+.ask-composer {
+  display: flex; gap: 8px; padding: 12px 22px 18px;
+  border-top: 1px solid var(--line); background: var(--paper);
+}
+.ask-composer input { flex: 1; }
 
 @media (max-width: 800px) {
   .top { flex-wrap: wrap; }

@@ -72,18 +72,30 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) currentUser(r *http.Request) (*User, error) {
+func sessionIDFromRequest(secret string, r *http.Request) (string, bool) {
+	if raw := strings.TrimSpace(r.Header.Get("Authorization")); raw != "" {
+		scheme, token, ok := strings.Cut(raw, " ")
+		if ok && strings.EqualFold(scheme, "Bearer") && token != "" {
+			if sessionID, parsed := auth.ParseJWT(secret, token); parsed {
+				return sessionID, true
+			}
+		}
+	}
 	c, err := r.Cookie(cookieName)
 	if err != nil || c.Value == "" {
-		return nil, errNoSession
+		return "", false
 	}
-	sessionID, ok := auth.Open(s.cfg.SessionSecret, c.Value)
+	return auth.Open(secret, c.Value)
+}
+
+func (s *Server) currentUser(r *http.Request) (*User, error) {
+	sessionID, ok := sessionIDFromRequest(s.cfg.SessionSecret, r)
 	if !ok {
 		return nil, errNoSession
 	}
 	var u User
 	var expires time.Time
-	err = s.db.QueryRowContext(r.Context(), `SELECT u.id, u.username, u.role, u.class_id, c.name, s.expires_at
+	err := s.db.QueryRowContext(r.Context(), `SELECT u.id, u.username, u.role, u.class_id, c.name, s.expires_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		JOIN classes c ON c.id = u.class_id

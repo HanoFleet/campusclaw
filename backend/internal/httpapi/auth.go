@@ -80,7 +80,16 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setSessionCookie(w, auth.Seal(s.cfg.SessionSecret, sessionID))
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	token, err := auth.IssueJWT(s.cfg.SessionSecret, sessionID, s.cfg.SessionTTL)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":     "ok",
+		"token":      token,
+		"token_type": "Bearer",
+	})
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -88,11 +97,8 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, _ := r.Cookie(cookieName)
-	if c != nil {
-		if sessionID, opened := auth.Open(s.cfg.SessionSecret, c.Value); opened {
-			_, _ = s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE id=?`, sessionID)
-		}
+	if sessionID, ok := sessionIDFromRequest(s.cfg.SessionSecret, r); ok {
+		_, _ = s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE id=?`, sessionID)
 	}
 	_, _ = s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, u.ID)
 	s.clearSessionCookie(w)

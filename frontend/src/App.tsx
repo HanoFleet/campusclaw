@@ -2,9 +2,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import remarkGfm from "remark-gfm";
+import { AskPage } from "./Ask";
 import {
   ApiError,
+  clearToken,
   getMe,
+  getToken,
+  setToken,
   type AskResult,
   type MaterialDetail,
   type MaterialItem,
@@ -35,6 +39,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage push={push} />} />
         <Route path="/materials" element={<MaterialsGate push={push} />} />
+        <Route path="/ask" element={<AskGate push={push} />} />
         <Route path="*" element={<Navigate to="/materials" replace />} />
       </Routes>
       <div className="toasts" aria-live="polite">
@@ -66,10 +71,11 @@ function LoginPage({ push }: { push: (text: string) => void }) {
     setBusy(true);
     setError("");
     try {
-      await api("/api/login", {
+      const logged = await api<{ status: string; token?: string }>("/api/login", {
         method: "POST",
         body: JSON.stringify({ username, password }),
       });
+      if (logged.token) setToken(logged.token);
       push("已登录");
       navigate("/materials", { replace: true });
     } catch (err) {
@@ -126,6 +132,35 @@ function MaterialsGate({ push }: { push: (text: string) => void }) {
   if (me === undefined) return <p className="boot">正在确认会话…</p>;
   if (me === null) return <Navigate to="/login" replace />;
   return <MaterialsPage me={me} push={push} />;
+}
+
+function AskGate({ push }: { push: (text: string) => void }) {
+  const navigate = useNavigate();
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  useEffect(() => {
+    getMe()
+      .then(setMe)
+      .catch(() => setMe(null));
+  }, []);
+  if (me === undefined) return <p className="boot">正在确认会话…</p>;
+  if (me === null) return <Navigate to="/login" replace />;
+  return (
+    <AskPage
+      me={me}
+      push={push}
+      onLogout={() => {
+        void (async () => {
+          try {
+            await api("/api/logout", { method: "POST" });
+          } catch {
+            /* 已失效也回登录页 */
+          }
+          clearToken();
+          navigate("/login", { replace: true });
+        })();
+      }}
+    />
+  );
 }
 
 function MaterialsPage({ me, push }: { me: Me; push: (text: string) => void }) {
@@ -213,6 +248,7 @@ function MaterialsPage({ me, push }: { me: Me; push: (text: string) => void }) {
     } catch {
       /* 会话已经失效时直接回登录页 */
     }
+    clearToken();
     navigate("/login", { replace: true });
   }
 
@@ -223,6 +259,8 @@ function MaterialsPage({ me, push }: { me: Me; push: (text: string) => void }) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/materials");
     xhr.withCredentials = true;
+    const token = getToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) setProgress(event.loaded / event.total);
     };
@@ -377,6 +415,9 @@ function MaterialsPage({ me, push }: { me: Me; push: (text: string) => void }) {
           </button>
           <button type="button" onClick={toggleView}>
             {view === "list" ? "网格" : "列表"}
+          </button>
+          <button type="button" className="nav-ask" onClick={() => navigate("/ask")}>
+            问答
           </button>
           <button type="button" onClick={() => setPaletteOpen(true)}>
             命令

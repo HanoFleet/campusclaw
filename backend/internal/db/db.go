@@ -196,6 +196,11 @@ func Seed(ctx context.Context, conn *sql.DB, cfg config.Config) error {
 			title: "B班-牛顿定律笔记",
 			body:  "# B班牛顿定律\n\n不受外力的物体保持静止或匀速直线运动。\n",
 		},
+		{
+			key: "seed-class-a-science", class: "A", uploader: "teacher_a",
+			title: "A班-小学科学课程.md",
+			body: "# 小学科学课程\n\n水在零摄氏度结成冰，加热到一百摄氏度时沸腾，变成水蒸气。磁铁能吸铁钉，不能吸木块。本资料发给 A 班科学课使用。\n\n每节先观察，再写下看到的现象，最后才写原因。水的三态：冰是固体，水是液体，水蒸气是气体。把冰块放在室温的盘子里，冰块会变小，盘子里会出现水。水开了之后壶嘴冒出白雾，是水蒸气遇冷变成的小水滴。磁铁能吸铁，不能吸木头。条形磁铁两端磁力最强，中间较弱。同名磁极互相推开，异名磁极互相靠近。\n",
+		},
 	}
 	for _, m := range materials {
 		if err := ensureMaterial(ctx, conn, cfg.UploadDir, m); err != nil {
