@@ -56,6 +56,7 @@ func New(cfg config.Config, db *sql.DB) *Server {
 	s.mux.HandleFunc("POST /api/materials/{id}/reindex", s.reindex)
 	s.mux.HandleFunc("POST /api/search", s.search)
 	s.mux.HandleFunc("POST /api/ask", s.ask)
+	s.registerStudio()
 	return s
 }
 

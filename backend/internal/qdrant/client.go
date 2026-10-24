@@ -114,23 +114,32 @@ func (c *Client) Delete(ctx context.Context, ids []uint64) error {
 }
 
 func (c *Client) Search(ctx context.Context, vector []float32, classID int64, limit int) ([]Hit, error) {
+	return c.SearchMaterials(ctx, vector, classID, nil, limit)
+}
+
+func (c *Client) SearchMaterials(ctx context.Context, vector []float32, classID int64, materialIDs []int64, limit int) ([]Hit, error) {
 	if limit <= 0 {
 		limit = 8
 	}
 	if err := c.EnsureCollection(ctx); err != nil {
 		return nil, err
 	}
+	must := []map[string]any{{
+		"key":   "class_id",
+		"match": map[string]any{"value": classID},
+	}}
+	if len(materialIDs) > 0 {
+		must = append(must, map[string]any{
+			"key":   "material_id",
+			"match": map[string]any{"any": materialIDs},
+		})
+	}
 	body := map[string]any{
 		"vector":          vector,
 		"limit":           limit,
 		"with_payload":    true,
 		"score_threshold": 0.35,
-		"filter": map[string]any{
-			"must": []map[string]any{{
-				"key":   "class_id",
-				"match": map[string]any{"value": classID},
-			}},
-		},
+		"filter":          map[string]any{"must": must},
 	}
 	status, raw, err := c.do(ctx, http.MethodPost, "/collections/"+Collection+"/points/search", body)
 	if err != nil {

@@ -158,7 +158,149 @@ func Migrate(ctx context.Context, conn *sql.DB) error {
 			return err
 		}
 	}
+	return migrateStudio(ctx, conn)
+}
+
+func migrateStudio(ctx context.Context, conn *sql.DB) error {
+	cols := []struct{ table, name, def string }{
+		{"skills", "class_id", "BIGINT NULL"},
+		{"skills", "trigger_text", "VARCHAR(120) NOT NULL DEFAULT ''"},
+		{"skills", "description", "TEXT NULL"},
+		{"skills", "tools_json", "TEXT NULL"},
+		{"skills", "source_text", "MEDIUMTEXT NULL"},
+		{"skills", "subject_text", "VARCHAR(32) NOT NULL DEFAULT ''"},
+		{"skills", "enabled", "TINYINT NOT NULL DEFAULT 1"},
+		{"skills", "seed_key", "VARCHAR(64) NULL"},
+	}
+	for _, c := range cols {
+		if err := addColumn(ctx, conn, c.table, c.name, c.def); err != nil {
+			return err
+		}
+	}
+	extra := []string{
+		`CREATE TABLE IF NOT EXISTS tutor_agents (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			class_id BIGINT NOT NULL,
+			name VARCHAR(64) NOT NULL,
+			prompt VARCHAR(2000) NOT NULL DEFAULT '',
+			enabled TINYINT NOT NULL DEFAULT 1,
+			seed_key VARCHAR(64) NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			UNIQUE KEY uq_agent_class_name (class_id, name),
+			UNIQUE KEY uq_agent_seed (seed_key),
+			INDEX idx_agents_class (class_id),
+			CONSTRAINT fk_agents_class FOREIGN KEY (class_id) REFERENCES classes(id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS tutor_agent_skills (
+			agent_id BIGINT NOT NULL,
+			skill_id BIGINT NOT NULL,
+			PRIMARY KEY (agent_id, skill_id),
+			CONSTRAINT fk_bind_skill_agent FOREIGN KEY (agent_id) REFERENCES tutor_agents(id) ON DELETE CASCADE,
+			CONSTRAINT fk_bind_skill_skill FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS tutor_agent_materials (
+			agent_id BIGINT NOT NULL,
+			material_id BIGINT NOT NULL,
+			PRIMARY KEY (agent_id, material_id),
+			CONSTRAINT fk_bind_mat_agent FOREIGN KEY (agent_id) REFERENCES tutor_agents(id) ON DELETE CASCADE,
+			CONSTRAINT fk_bind_mat_material FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS conversations (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			class_id BIGINT NOT NULL,
+			user_id BIGINT NOT NULL,
+			agent_id BIGINT NOT NULL,
+			title VARCHAR(64) NOT NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			INDEX idx_conv_user (user_id, updated_at),
+			CONSTRAINT fk_conv_class FOREIGN KEY (class_id) REFERENCES classes(id),
+			CONSTRAINT fk_conv_user FOREIGN KEY (user_id) REFERENCES users(id),
+			CONSTRAINT fk_conv_agent FOREIGN KEY (agent_id) REFERENCES tutor_agents(id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS messages (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			conversation_id BIGINT NOT NULL,
+			role ENUM('user','assistant') NOT NULL,
+			content MEDIUMTEXT NOT NULL,
+			citations_json MEDIUMTEXT NULL,
+			skill_name VARCHAR(64) NULL,
+			trace_json MEDIUMTEXT NULL,
+			created_at DATETIME NOT NULL,
+			INDEX idx_msg_conv (conversation_id, id),
+			CONSTRAINT fk_msg_conv FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS llm_exchanges (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			class_id BIGINT NOT NULL,
+			user_id BIGINT NOT NULL,
+			conversation_id BIGINT NOT NULL,
+			round_no INT NOT NULL,
+			request_json MEDIUMTEXT NOT NULL,
+			response_json MEDIUMTEXT NOT NULL,
+			created_at DATETIME NOT NULL,
+			INDEX idx_llm_conv (conversation_id, id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS mcp_servers (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			class_id BIGINT NOT NULL,
+			name VARCHAR(64) NOT NULL,
+			base_url VARCHAR(255) NOT NULL,
+			auth_token VARCHAR(255) NOT NULL,
+			connected TINYINT NOT NULL DEFAULT 0,
+			last_error VARCHAR(255) NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			UNIQUE KEY uq_mcp_class_name (class_id, name),
+			INDEX idx_mcp_class (class_id),
+			CONSTRAINT fk_mcp_class FOREIGN KEY (class_id) REFERENCES classes(id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS mcp_tools (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			server_id BIGINT NOT NULL,
+			class_id BIGINT NOT NULL,
+			name VARCHAR(64) NOT NULL,
+			description TEXT NOT NULL,
+			input_schema TEXT NOT NULL,
+			UNIQUE KEY uq_mcp_tool (server_id, name),
+			CONSTRAINT fk_mcp_tool_server FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS mcp_calls (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			class_id BIGINT NOT NULL,
+			user_id BIGINT NOT NULL,
+			server_name VARCHAR(64) NOT NULL,
+			tool_name VARCHAR(64) NOT NULL,
+			ref_text VARCHAR(160) NOT NULL,
+			status VARCHAR(16) NOT NULL,
+			detail VARCHAR(500) NOT NULL DEFAULT '',
+			round_no INT NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			INDEX idx_mcp_calls_class (class_id, id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+	}
+	for _, stmt := range extra {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	_, _ = conn.ExecContext(ctx, `CREATE UNIQUE INDEX uq_skills_seed ON skills (seed_key)`)
+	_, _ = conn.ExecContext(ctx, `CREATE UNIQUE INDEX uq_skills_class_name ON skills (class_id, name)`)
 	return nil
+}
+
+func addColumn(ctx context.Context, conn *sql.DB, table, name, def string) error {
+	var n int
+	err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, table, name).Scan(&n)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err = conn.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+name+" "+def)
+	return err
 }
 
 type seedMaterial struct {
@@ -199,13 +341,26 @@ func Seed(ctx context.Context, conn *sql.DB, cfg config.Config) error {
 		{
 			key: "seed-class-a-science", class: "A", uploader: "teacher_a",
 			title: "A班-小学科学课程.md",
-			body: "# 小学科学课程\n\n水在零摄氏度结成冰，加热到一百摄氏度时沸腾，变成水蒸气。磁铁能吸铁钉，不能吸木块。本资料发给 A 班科学课使用。\n\n每节先观察，再写下看到的现象，最后才写原因。水的三态：冰是固体，水是液体，水蒸气是气体。把冰块放在室温的盘子里，冰块会变小，盘子里会出现水。水开了之后壶嘴冒出白雾，是水蒸气遇冷变成的小水滴。磁铁能吸铁，不能吸木头。条形磁铁两端磁力最强，中间较弱。同名磁极互相推开，异名磁极互相靠近。\n",
+			body:  "# 小学科学课程\n\n水在零摄氏度结成冰，加热到一百摄氏度时沸腾，变成水蒸气。磁铁能吸铁钉，不能吸木块。本资料发给 A 班科学课使用。\n\n每节先观察，再写下看到的现象，最后才写原因。水的三态：冰是固体，水是液体，水蒸气是气体。把冰块放在室温的盘子里，冰块会变小，盘子里会出现水。水开了之后壶嘴冒出白雾，是水蒸气遇冷变成的小水滴。磁铁能吸铁，不能吸木头。条形磁铁两端磁力最强，中间较弱。同名磁极互相推开，异名磁极互相靠近。\n",
+		},
+		{
+			key: "seed-class-a-math", class: "A", uploader: "teacher_a",
+			title: "A班-数学自学笔记",
+			body:  "# 数学自学笔记\n\n去括号时，括号前面的数要乘到括号里的每一项。分母不同的分数相加，要先通分。矩形面积等于长乘宽，长和宽要先换成同一个单位。设未知数时，先写清楚它表示哪一个量。\n",
+		},
+		{
+			key: "seed-class-a-chinese", class: "A", uploader: "teacher_a",
+			title: "A班-语文自学笔记",
+			body:  "# 语文自学笔记\n\n春晓的前两句是春眠不觉晓，处处闻啼鸟。读一首诗先看题目，再找写景的句子，最后才说中心。改作文的开头，先看第一句有没有点题。\n",
 		},
 	}
 	for _, m := range materials {
 		if err := ensureMaterial(ctx, conn, cfg.UploadDir, m); err != nil {
 			return err
 		}
+	}
+	if err := seedStudio(ctx, conn); err != nil {
+		return err
 	}
 	if err := ensurePlaceholder(ctx, conn, `INSERT INTO handouts (class_id, title)
 		SELECT id, 'A班占位讲义' FROM classes WHERE name='A'
@@ -219,10 +374,6 @@ func Seed(ctx context.Context, conn *sql.DB, cfg config.Config) error {
 	}
 	if err := ensurePlaceholder(ctx, conn, `INSERT INTO assistants (name)
 		SELECT '占位助手' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM assistants)`); err != nil {
-		return err
-	}
-	if err := ensurePlaceholder(ctx, conn, `INSERT INTO skills (name)
-		SELECT '占位技能' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM skills)`); err != nil {
 		return err
 	}
 	return nil

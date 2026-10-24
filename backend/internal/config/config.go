@@ -32,6 +32,7 @@ type Config struct {
 	ChatURL              string
 	ChatAPIKey           string
 	ChatModel            string
+	MCPAuthToken         string
 }
 
 func Load() (Config, error) {
@@ -63,6 +64,7 @@ func Load() (Config, error) {
 		ChatURL:              need("CHAT_URL"),
 		ChatAPIKey:           need("CHAT_API_KEY"),
 		ChatModel:            need("CHAT_MODEL"),
+		MCPAuthToken:         strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN")),
 	}
 	maxRaw := need("MAX_UPLOAD_BYTES")
 	ttlRaw := need("SESSION_TTL_HOURS")

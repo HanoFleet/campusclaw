@@ -13,12 +13,33 @@ import (
 )
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+}
+
+type ToolDef struct {
+	Name        string
+	Description string
+	Parameters  json.RawMessage
+}
+
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type Completion struct {
+	Content   string
+	ToolCalls []ToolCall
+	Raw       json.RawMessage
 }
 
 type Completer interface {
 	Complete(ctx context.Context, userQuery string, history []Message, evidence []string) (string, error)
+	Round(ctx context.Context, messages []Message, tools []ToolDef) (Completion, error)
 	Calls() int64
 }
 
