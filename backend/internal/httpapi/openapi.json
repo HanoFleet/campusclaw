@@ -1,0 +1,41 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CampusClaw",
+    "version": "0.5.0",
+    "description": "登录、本班材料、智能体、技能、流式会话和 MCP 工具。"
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
+    }
+  },
+  "paths": {
+    "/health": {"get": {"summary": "存活检查，不需要登录", "responses": {"200": {"description": "ok"}}}},
+    "/api/login": {"post": {"summary": "用账号密码换取 Bearer 令牌", "responses": {"200": {"description": "token"}, "401": {"description": "invalid_credentials"}}}},
+    "/api/agents": {
+      "get": {"security": [{"bearer": []}], "summary": "列出本班应用。学生只看到已启用的", "responses": {"200": {"description": "agents"}, "401": {"description": "unauthorized"}}},
+      "post": {"security": [{"bearer": []}], "summary": "教师新建应用并绑定技能和材料", "responses": {"201": {"description": "created"}, "403": {"description": "forbidden"}, "404": {"description": "绑定了不存在的技能或材料"}}}
+    },
+    "/api/skills": {
+      "get": {"security": [{"bearer": []}], "summary": "列出本班技能", "responses": {"200": {"description": "skills"}}},
+      "post": {"security": [{"bearer": []}], "summary": "教师提交或上传技能全文", "responses": {"201": {"description": "created"}, "400": {"description": "invalid_skill"}}}
+    },
+    "/api/conversations": {
+      "get": {"security": [{"bearer": []}], "summary": "只列出自己的会话", "responses": {"200": {"description": "conversations"}}},
+      "post": {"security": [{"bearer": []}], "summary": "选定一个已启用的本班应用后新建会话", "responses": {"201": {"description": "created"}, "404": {"description": "not_found"}}}
+    },
+    "/api/conversations/{id}/messages": {
+      "post": {"security": [{"bearer": []}], "summary": "发送一条消息，以 SSE 返回 meta、delta、done", "responses": {"200": {"description": "text/event-stream"}, "400": {"description": "invalid_query"}, "404": {"description": "not_found"}}}
+    },
+    "/api/mcp/servers": {
+      "get": {"security": [{"bearer": []}], "summary": "列出本班 MCP 服务器，不返回令牌", "responses": {"200": {"description": "servers"}}},
+      "post": {"security": [{"bearer": []}], "summary": "教师登记服务器", "responses": {"201": {"description": "created"}, "403": {"description": "forbidden"}}}
+    },
+    "/api/mcp/servers/{id}/connect": {"post": {"security": [{"bearer": []}], "summary": "握手并发现工具", "responses": {"200": {"description": "ok"}, "400": {"description": "connect_failed"}}}},
+    "/api/mcp/servers/{id}/disconnect": {"post": {"security": [{"bearer": []}], "summary": "断开并清空工具清单", "responses": {"200": {"description": "ok"}}}},
+    "/api/mcp/audits": {"get": {"security": [{"bearer": []}], "summary": "教师查看本班工具调用记录", "responses": {"200": {"description": "audits"}, "403": {"description": "forbidden"}}}},
+    "/api/search": {"post": {"security": [{"bearer": []}], "summary": "本班检索", "responses": {"200": {"description": "hits"}}}},
+    "/api/ask": {"post": {"security": [{"bearer": []}], "summary": "第 4 课问答。没有命中时不调用模型", "responses": {"200": {"description": "answer"}}}}
+  }
+}

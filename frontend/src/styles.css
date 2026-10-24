@@ -225,9 +225,23 @@ input:focus { outline: 2px solid color-mix(in srgb, var(--red) 55%, white); }
 }
 .ask-composer input { flex: 1; }
 
+.studio { padding: 18px 22px 40px; display: grid; gap: 14px; }
+.studio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.studio-form { display: grid; gap: 10px; }
+.studio-form input, .studio-form textarea, .studio-form select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: transparent; }
+.studio-form fieldset { border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 6px; }
+.muted { color: var(--muted); }
+.chat-layout { grid-template-columns: 260px 1fr; align-items: start; }
+.chat-layout aside { display: grid; gap: 8px; }
+.conv { display: grid; text-align: left; border: 1px solid var(--line); background: var(--paper); border-radius: 12px; padding: 8px 10px; }
+.conv.active { border-color: var(--red); }
+.conv span { color: var(--muted); font-size: 0.85rem; }
+.trace { margin-top: 10px; }
+.trace summary { cursor: pointer; color: var(--red); }
+
 @media (max-width: 800px) {
   .top { flex-wrap: wrap; }
-  .workspace { grid-template-columns: 1fr; }
+  .workspace, .chat-layout { grid-template-columns: 1fr; }
   .detail { border-left: 0; border-top: 1px solid var(--line); }
   .cards.grid { grid-template-columns: 1fr; }
 }

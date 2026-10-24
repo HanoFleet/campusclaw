@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"campusclaw/internal/skillfile"
@@ -24,7 +25,7 @@ type seedAgent struct {
 	material []string
 }
 
-func seedStudio(ctx context.Context, conn *sql.DB) error {
+func seedStudio(ctx context.Context, conn *sql.DB, mcpToken string) error {
 	skills := []seedSkill{
 		{key: "seed-skill-a-math", class: "A", body: "名称：数学解题引导\n适用条件：方程,去括号,分数,通分,面积,应用题,未知数,行程\n资料：数学\n工具：knowledge_search\n启用：是\n\n学生正在做数学作业，往往已经写了一步。先看懂他卡在哪一步，只指出下一步该检查什么，例如去括号有没有乘到每一项、分母不同要不要先通分。不要算出最终得数，不要把整道题做完。依据只用标题里带「数学」的材料，并标出材料标题和位置。\n"},
 		{key: "seed-skill-a-formula", class: "A", body: "名称：公式提示\n适用条件：公式,面积,提示\n资料：数学\n工具：formula_hint@campus-tools,knowledge_search\n启用：是\n\n学生在问该用哪一类公式。先调用公式提示工具拿到检查步骤，再结合检索到的材料说明下一步看什么。不要给出最终得数。\n"},
@@ -69,7 +70,13 @@ func seedStudio(ctx context.Context, conn *sql.DB) error {
 			return err
 		}
 	}
-	return nil
+	if strings.TrimSpace(mcpToken) == "" {
+		return nil
+	}
+	_, err := conn.ExecContext(ctx, `INSERT INTO mcp_servers (class_id, name, base_url, auth_token, connected, created_at)
+		SELECT id, 'campus-tools', 'http://mcp:8090', ?, 0, UTC_TIMESTAMP() FROM classes WHERE name='A'
+		AND NOT EXISTS (SELECT 1 FROM mcp_servers WHERE name='campus-tools' AND class_id=classes.id)`, mcpToken)
+	return err
 }
 
 func ensureSkill(ctx context.Context, conn *sql.DB, s seedSkill) error {

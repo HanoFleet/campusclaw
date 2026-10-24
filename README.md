@@ -74,6 +74,21 @@ python3 scripts/verify.py
 
 脚本会按上面的场景请求本机 Compose，并把不含口令的结果写到 `docs/verification.md`。
 
+## 应用、技能和工具
+
+登录后可以打开「应用」「技能」「对话」「工具」。
+
+- 一个班有多个应用。应用上的提示词会放进发给模型的系统消息。提示词留空时使用默认角色。
+- 技能是一份文本，可以在页面上粘贴或上传。服务端按适用条件选至多一条，只把这一条的说明放进系统消息，不会把其他技能的全文也传过去。
+- 检索只发生在这个应用绑定的材料里，最多 4 条片段。没有把知识库全文交给模型。没有命中时仍然按提示词回答，只是不标出处。
+- 名称里带「解题引导」的技能不会直接给最终得数。
+- 「工具」页登记 MCP 服务器。令牌只存在服务端。连接成功后可以看到 `formula_hint` 和 `unit_convert`。技能里写成 `工具名@服务器名` 才会在这次提问里把工具声明发给模型。
+- 对话回答下面可以展开「这次发给模型的内容」，里面有提示词、检索片段、选中的技能，以及工具声明和调用结果。每一轮原始请求也记在 `llm_exchanges`。
+
+自建工具服务在 `mcp-server/`，和主应用同一个 Compose。`.env` 里要有 `MCP_AUTH_TOKEN`，两边用同一把。
+
+接口说明在 `/swagger`，原文是 `/openapi.json`。
+
 ## 第 4 课变更
 
 变更 `add-traceable-vector-retrieval` 已实现并归档到 `openspec/changes/archive/2026-09-28-add-traceable-vector-retrieval/`。长期规约在 `openspec/specs/knowledge-retrieval/spec.md`。

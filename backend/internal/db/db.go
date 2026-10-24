@@ -359,7 +359,7 @@ func Seed(ctx context.Context, conn *sql.DB, cfg config.Config) error {
 			return err
 		}
 	}
-	if err := seedStudio(ctx, conn); err != nil {
+	if err := seedStudio(ctx, conn, cfg.MCPAuthToken); err != nil {
 		return err
 	}
 	if err := ensurePlaceholder(ctx, conn, `INSERT INTO handouts (class_id, title)

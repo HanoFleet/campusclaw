@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import { AskPage } from "./Ask";
+import { StudioGate } from "./studio";
 import {
   ApiError,
   clearToken,
@@ -40,6 +41,10 @@ export default function App() {
         <Route path="/login" element={<LoginPage push={push} />} />
         <Route path="/materials" element={<MaterialsGate push={push} />} />
         <Route path="/ask" element={<AskGate push={push} />} />
+        <Route path="/apps" element={<StudioGate page="apps" push={push} />} />
+        <Route path="/skills" element={<StudioGate page="skills" push={push} />} />
+        <Route path="/tools" element={<StudioGate page="tools" push={push} />} />
+        <Route path="/chat" element={<StudioGate page="chat" push={push} />} />
         <Route path="*" element={<Navigate to="/materials" replace />} />
       </Routes>
       <div className="toasts" aria-live="polite">
@@ -416,8 +421,17 @@ function MaterialsPage({ me, push }: { me: Me; push: (text: string) => void }) {
           <button type="button" onClick={toggleView}>
             {view === "list" ? "网格" : "列表"}
           </button>
-          <button type="button" className="nav-ask" onClick={() => navigate("/ask")}>
-            问答
+          <button type="button" className="nav-ask" onClick={() => navigate("/chat")}>
+            对话
+          </button>
+          <button type="button" onClick={() => navigate("/apps")}>
+            应用
+          </button>
+          <button type="button" onClick={() => navigate("/skills")}>
+            技能
+          </button>
+          <button type="button" onClick={() => navigate("/tools")}>
+            工具
           </button>
           <button type="button" onClick={() => setPaletteOpen(true)}>
             命令

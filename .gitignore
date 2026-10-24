@@ -6,3 +6,4 @@ backend/server
 .DS_Store
 __pycache__/
 *.pyc
+apitest/report.html
