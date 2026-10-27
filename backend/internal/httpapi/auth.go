@@ -10,8 +10,8 @@ import (
 )
 
 type loginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username" required:"true"`
+	Password string `json:"password" required:"true"`
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {

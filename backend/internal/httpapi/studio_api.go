@@ -18,36 +18,12 @@ import (
 	"campusclaw/internal/studio"
 )
 
-func (s *Server) registerStudio() {
-	s.mux.HandleFunc("GET /api/agents", s.listAgents)
-	s.mux.HandleFunc("POST /api/agents", s.createAgent)
-	s.mux.HandleFunc("GET /api/agents/{id}", s.getAgent)
-	s.mux.HandleFunc("PUT /api/agents/{id}", s.updateAgent)
-	s.mux.HandleFunc("GET /api/skills", s.listSkills)
-	s.mux.HandleFunc("POST /api/skills", s.createSkill)
-	s.mux.HandleFunc("GET /api/skills/{id}", s.getSkill)
-	s.mux.HandleFunc("PUT /api/skills/{id}", s.updateSkill)
-	s.mux.HandleFunc("DELETE /api/skills/{id}", s.deleteSkill)
-	s.mux.HandleFunc("GET /api/conversations", s.listConversations)
-	s.mux.HandleFunc("POST /api/conversations", s.createConversation)
-	s.mux.HandleFunc("GET /api/conversations/{id}", s.getConversation)
-	s.mux.HandleFunc("POST /api/conversations/{id}/messages", s.postConversationMessage)
-	s.mux.HandleFunc("GET /api/conversations/{id}/exchanges", s.listExchanges)
-	s.mux.HandleFunc("GET /api/mcp/servers", s.listMCPServers)
-	s.mux.HandleFunc("POST /api/mcp/servers", s.createMCPServer)
-	s.mux.HandleFunc("POST /api/mcp/servers/{id}/connect", s.connectMCPServer)
-	s.mux.HandleFunc("POST /api/mcp/servers/{id}/disconnect", s.disconnectMCPServer)
-	s.mux.HandleFunc("DELETE /api/mcp/servers/{id}", s.deleteMCPServer)
-	s.mux.HandleFunc("GET /api/mcp/servers/{id}/tools", s.listMCPTools)
-	s.mux.HandleFunc("GET /api/mcp/audits", s.listMCPAudits)
-}
-
 type agentBody struct {
-	Name        string  `json:"name"`
-	Prompt      string  `json:"prompt"`
-	Enabled     *bool   `json:"enabled"`
-	SkillIDs    []int64 `json:"skill_ids"`
-	MaterialIDs []int64 `json:"material_ids"`
+	Name        string  `json:"name" required:"true" doc:"1 到 64 字，班内不重复"`
+	Prompt      string  `json:"prompt" doc:"角色提示词，最多 2000 字"`
+	Enabled     *bool   `json:"enabled" doc:"省略时为 true"`
+	SkillIDs    []int64 `json:"skill_ids" doc:"绑定的本班技能"`
+	MaterialIDs []int64 `json:"material_ids" doc:"绑定的本班材料，只在这些材料里检索；留空则检索不到任何材料"`
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {

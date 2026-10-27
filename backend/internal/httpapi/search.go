@@ -12,19 +12,19 @@ import (
 )
 
 type searchRequest struct {
-	Query   string `json:"query"`
-	Mode    string `json:"mode"`
-	ClassID any    `json:"class_id"`
+	Query   string `json:"query" required:"true"`
+	Mode    string `json:"mode" doc:"hybrid（默认）、keyword 或 vector"`
+	ClassID any    `json:"class_id" doc:"会被忽略，班级只取自登录用户"`
 }
 
 type askRequest struct {
-	Query    string         `json:"query"`
-	Messages []chat.Message `json:"messages"`
-	ClassID  any            `json:"class_id"`
+	Query    string         `json:"query" required:"true"`
+	Messages []chat.Message `json:"messages" doc:"之前的对话，可省略"`
+	ClassID  any            `json:"class_id" doc:"会被忽略，班级只取自登录用户"`
 }
 
 type reindexRequest struct {
-	Strategy      string  `json:"strategy"`
+	Strategy      string  `json:"strategy" doc:"auto 按段落和标题切；custom 按下面的长度和重叠切"`
 	MaxLen        int     `json:"max_len"`
 	OverlapRatio  float64 `json:"overlap_ratio"`
 	StripURL      bool    `json:"strip_urls"`

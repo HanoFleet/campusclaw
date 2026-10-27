@@ -89,7 +89,7 @@ python3 scripts/verify.py
 
 自建工具服务在 `mcp-server/`，和主应用同一个 Compose。`.env` 里要有 `MCP_AUTH_TOKEN`，两边用同一把。
 
-接口说明在 `/swagger`，原文是 `/openapi.json`。
+接口说明在 `/swagger`，原文是 `/openapi.json`。文档由 `backend/internal/httpapi/routes.go` 里每条路由旁的说明生成，入参、出参、错误码和是否需要登录都写在那里，改路由时文档一起变。
 
 ## 第 4 课变更
 

@@ -45,19 +45,7 @@ func New(cfg config.Config, db *sql.DB) *Server {
 		mux:     http.NewServeMux(),
 		retr:    retrieval.New(db, emb, qd, chat.New(cfg.ChatURL, cfg.ChatAPIKey, cfg.ChatModel)),
 	}
-	s.mux.HandleFunc("GET /health", s.health)
-	s.mux.HandleFunc("POST /api/login", s.login)
-	s.mux.HandleFunc("POST /api/logout", s.logout)
-	s.mux.HandleFunc("GET /api/me", s.me)
-	s.mux.HandleFunc("GET /api/materials", s.listMaterials)
-	s.mux.HandleFunc("POST /api/materials", s.uploadMaterial)
-	s.mux.HandleFunc("GET /api/materials/{id}", s.getMaterial)
-	s.mux.HandleFunc("GET /api/materials/{id}/file", s.getMaterialFile)
-	s.mux.HandleFunc("POST /api/materials/{id}/reindex", s.reindex)
-	s.mux.HandleFunc("POST /api/search", s.search)
-	s.mux.HandleFunc("POST /api/ask", s.ask)
-	s.registerStudio()
-	s.registerDocs()
+	s.routes()
 	return s
 }
 
