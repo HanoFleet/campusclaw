@@ -15,7 +15,12 @@ import (
 	"unicode"
 )
 
-const LocalDim = 256
+const (
+	LocalDim     = 256
+	GatewayDim   = 2048
+	embedBatch   = 16
+	embedMaxBody = 16 << 20
+)
 
 type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
@@ -73,6 +78,7 @@ type HTTP struct {
 	url    string
 	key    string
 	model  string
+	dim    int
 	client *http.Client
 	calls  atomic.Int64
 }
@@ -82,17 +88,34 @@ func NewHTTP(url, key, model string) *HTTP {
 		url:    strings.TrimRight(strings.TrimSpace(url), "/"),
 		key:    key,
 		model:  model,
-		client: &http.Client{Timeout: 30 * time.Second},
+		dim:    DimFor(url, model),
+		client: &http.Client{Timeout: 90 * time.Second},
 	}
 }
 
-func (h *HTTP) Dim() int     { return LocalDim }
+func (h *HTTP) Dim() int     { return h.dim }
 func (h *HTTP) Calls() int64 { return h.calls.Load() }
 
 func (h *HTTP) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
+	out := make([][]float32, len(texts))
+	for start := 0; start < len(texts); start += embedBatch {
+		end := start + embedBatch
+		if end > len(texts) {
+			end = len(texts)
+		}
+		part, err := h.embedBatch(ctx, texts[start:end])
+		if err != nil {
+			return nil, err
+		}
+		copy(out[start:], part)
+	}
+	return out, nil
+}
+
+func (h *HTTP) embedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	h.calls.Add(1)
 	payload, err := json.Marshal(map[string]any{"model": h.model, "input": texts})
 	if err != nil {
@@ -115,7 +138,7 @@ func (h *HTTP) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, embedMaxBody))
 	if err != nil {
 		return nil, err
 	}
@@ -141,14 +164,33 @@ func (h *HTTP) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 		if len(vec) == 0 {
 			return nil, fmt.Errorf("embedding missing for index %d", i)
 		}
+		if len(vec) != h.dim {
+			return nil, fmt.Errorf("embedding dim %d, want %d", len(vec), h.dim)
+		}
 	}
 	return out, nil
 }
 
-func New(url, key, model string) Embedder {
+func isLocalURL(url string) bool {
 	u := strings.TrimSpace(url)
-	if u == "" || strings.EqualFold(u, "local") || strings.HasPrefix(strings.ToLower(u), "local:") {
+	return u == "" || strings.EqualFold(u, "local") || strings.HasPrefix(strings.ToLower(u), "local:")
+}
+
+// DimFor 按地址和模型名决定向量维度。本地 ngram 是 256；课程网关 course-embedding 是 2048。
+func DimFor(url, model string) int {
+	if isLocalURL(url) {
+		return LocalDim
+	}
+	m := strings.ToLower(strings.TrimSpace(model))
+	if strings.Contains(m, "256") || strings.Contains(m, "ngram") {
+		return LocalDim
+	}
+	return GatewayDim
+}
+
+func New(url, key, model string) Embedder {
+	if isLocalURL(url) {
 		return Local{}
 	}
-	return NewHTTP(u, key, model)
+	return NewHTTP(url, key, model)
 }

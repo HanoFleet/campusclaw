@@ -11,7 +11,7 @@ CampusClaw 把教研材料按班级放进可登录的知识库。教师上传 tx
 - 切片正文在 `knowledge_chunks`，向量在 Qdrant，主键相同。摘录取自 MySQL。
 - 没有候选切片时返回「资料中未找到相关内容」，不凑数，也不调用对话模型。
 - Qdrant 和模型网关不映射到宿主，浏览器只打本站 `/api`。
-- `EMBEDDING_URL=local`、`CHAT_URL=local` 时在进程内完成嵌入和摘录式回答，不把密钥写进源码。换成课程网关时只改 `.env`。
+- `EMBEDDING_URL=local`、`CHAT_URL=local` 时在进程内完成嵌入和摘录式回答，不把密钥写进源码。换成课程网关时只改 `.env`。课程网关的 `course-embedding` 是 2048 维，本地 ngram 是 256 维；换维度后启动时会重建 Qdrant 集合并重新嵌入已有材料。
 
 ## 单实例
 
@@ -85,7 +85,7 @@ python3 scripts/verify.py
 - 名称里带「解题引导」的技能不会直接给最终得数。
 - 「工具」页登记 MCP 服务器。令牌只存在服务端。连接成功后可以看到 `formula_hint` 和 `unit_convert`。技能里写成 `工具名@服务器名` 才会在这次提问里把工具声明发给模型。一次提问最多请求模型 3 次，最后一次不再提供工具。
 - 对话回答下面可以展开「模型调用记录」，按次列出实际发出的请求体（`model`、`temperature`、`messages`、`tools`、`tool_choice`）和接口返回的内容。同样的记录存在 `llm_exchanges` 表，也可以用 `GET /api/conversations/{id}/exchanges` 查看。
-- 对话模型接课程网关时，`.env` 写 `CHAT_URL=https://ai-gateway.devops.hello1023.com/v1`、`CHAT_MODEL=course-chat`，`CHAT_API_KEY` 填网关页面上自己的密钥。`CHAT_URL=local` 时用项目自带的本地替身，不访问外部模型，请求体格式相同，适合离线跑测试。
+- 对话模型接课程网关时，`.env` 写 `CHAT_URL=https://ai-gateway.devops.hello1023.com/v1`、`CHAT_MODEL=course-chat`，`CHAT_API_KEY` 填网关页面上自己的密钥。向量同样接课程网关：`EMBEDDING_URL` 用同一地址，`EMBEDDING_MODEL=course-embedding`，密钥同一把。`CHAT_URL=local` 或 `EMBEDDING_URL=local` 时用项目自带的本地替身，不访问外部模型，适合离线跑测试。
 
 自建工具服务在 `mcp-server/`，和主应用同一个 Compose。`.env` 里要有 `MCP_AUTH_TOKEN`，两边用同一把。
 

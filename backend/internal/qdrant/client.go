@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -35,7 +36,7 @@ func New(base string, dim int) *Client {
 	return &Client{
 		base: strings.TrimRight(strings.TrimSpace(base), "/"),
 		dim:  dim,
-		http: &http.Client{Timeout: 8 * time.Second},
+		http: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -53,34 +54,139 @@ func (c *Client) Available(ctx context.Context) bool {
 	return resp.StatusCode < 500
 }
 
+// EnsureCollection 保证集合存在且维度与当前嵌入模型一致。维度对不上时删掉重建。
 func (c *Client) EnsureCollection(ctx context.Context) error {
+	_, err := c.ensureCollection(ctx)
+	return err
+}
+
+func (c *Client) EnsureReady(ctx context.Context) (rebuilt bool, err error) {
+	return c.ensureCollection(ctx)
+}
+
+func (c *Client) ensureCollection(ctx context.Context) (bool, error) {
+	size, exists, err := c.collectionSize(ctx)
+	if err != nil {
+		return false, err
+	}
+	rebuilt := !exists
+	if exists {
+		if size == c.dim {
+			return false, nil
+		}
+		log.Printf("qdrant collection %s dim %d != %d, recreating", Collection, size, c.dim)
+		if err := c.deleteCollection(ctx); err != nil {
+			return false, err
+		}
+		rebuilt = true
+	}
 	body := map[string]any{
 		"vectors": map[string]any{
 			"size":     c.dim,
 			"distance": "Cosine",
 		},
 	}
-	status, _, err := c.do(ctx, http.MethodPut, "/collections/"+Collection, body)
+	status, raw, err := c.do(ctx, http.MethodPut, "/collections/"+Collection, body)
+	if err != nil {
+		return false, err
+	}
+	if status == http.StatusOK || status == http.StatusCreated {
+		return rebuilt, nil
+	}
+	if status == http.StatusConflict {
+		got, ok, err := c.collectionSize(ctx)
+		if err != nil {
+			return false, err
+		}
+		if ok && got == c.dim {
+			return false, nil
+		}
+		return false, fmt.Errorf("qdrant collection conflict dim=%d want=%d", got, c.dim)
+	}
+	return false, fmt.Errorf("create collection status %d: %s", status, raw)
+}
+
+func (c *Client) collectionSize(ctx context.Context) (int, bool, error) {
+	status, raw, err := c.do(ctx, http.MethodGet, "/collections/"+Collection, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	if status == http.StatusNotFound {
+		return 0, false, nil
+	}
+	if status >= 300 {
+		return 0, false, fmt.Errorf("qdrant collection %d: %s", status, raw)
+	}
+	size, ok := parseVectorSize(raw)
+	if !ok {
+		return 0, false, fmt.Errorf("qdrant collection missing vector size")
+	}
+	return size, true, nil
+}
+
+func (c *Client) deleteCollection(ctx context.Context) error {
+	status, raw, err := c.do(ctx, http.MethodDelete, "/collections/"+Collection, nil)
 	if err != nil {
 		return err
 	}
-	if status == http.StatusOK || status == http.StatusCreated || status == http.StatusConflict {
+	if status == http.StatusOK || status == http.StatusNotFound {
 		return nil
 	}
-	// 集合已存在时 Qdrant 仍可能返回 200；409 也视为成功。
-	if status >= 400 && status != http.StatusConflict {
-		// 再读一次，已存在即可。
-		if c.Available(ctx) {
-			return nil
-		}
-		return fmt.Errorf("create collection status %d", status)
+	return fmt.Errorf("delete collection status %d: %s", status, raw)
+}
+
+func (c *Client) PointsCount(ctx context.Context) (int64, error) {
+	status, raw, err := c.do(ctx, http.MethodGet, "/collections/"+Collection, nil)
+	if err != nil {
+		return 0, err
 	}
-	return nil
+	if status == http.StatusNotFound {
+		return 0, nil
+	}
+	if status >= 300 {
+		return 0, fmt.Errorf("qdrant collection %d: %s", status, raw)
+	}
+	var parsed struct {
+		Result struct {
+			PointsCount int64 `json:"points_count"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return 0, err
+	}
+	return parsed.Result.PointsCount, nil
+}
+
+func parseVectorSize(raw string) (int, bool) {
+	var parsed struct {
+		Result struct {
+			Config struct {
+				Params struct {
+					Vectors json.RawMessage `json:"vectors"`
+				} `json:"params"`
+			} `json:"config"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return 0, false
+	}
+	var unnamed struct {
+		Size int `json:"size"`
+	}
+	if err := json.Unmarshal(parsed.Result.Config.Params.Vectors, &unnamed); err == nil && unnamed.Size > 0 {
+		return unnamed.Size, true
+	}
+	return 0, false
 }
 
 func (c *Client) Upsert(ctx context.Context, points []Point) error {
 	if len(points) == 0 {
 		return nil
+	}
+	for _, p := range points {
+		if len(p.Vector) != c.dim {
+			return fmt.Errorf("vector dim %d, want %d", len(p.Vector), c.dim)
+		}
 	}
 	if err := c.EnsureCollection(ctx); err != nil {
 		return err

@@ -28,7 +28,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	if err := db.Wait(ctx, conn); err != nil {
 		log.Fatalf("database: %v", err)

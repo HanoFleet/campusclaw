@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -12,26 +13,82 @@ import (
 )
 
 func (s *Service) Backfill(ctx context.Context) error {
+	rebuilt, err := s.qdrant.EnsureReady(ctx)
+	if err != nil {
+		return err
+	}
+	if !rebuilt {
+		points, err := s.qdrant.PointsCount(ctx)
+		if err != nil {
+			return err
+		}
+		if points == 0 {
+			ready, err := s.readyChunkCount(ctx)
+			if err != nil {
+				return err
+			}
+			if ready > 0 {
+				log.Printf("qdrant empty with %d ready chunks, reindexing all materials", ready)
+				rebuilt = true
+			}
+		}
+	}
+	if rebuilt {
+		log.Printf("qdrant collection rebuilt at dim %d, reindexing all materials", s.embed.Dim())
+		ids, err := s.allMaterialIDs(ctx)
+		if err != nil {
+			return err
+		}
+		return s.indexMaterials(ctx, ids)
+	}
+	ids, err := s.missingMaterialIDs(ctx)
+	if err != nil {
+		return err
+	}
+	return s.indexMaterials(ctx, ids)
+}
+
+func (s *Service) missingMaterialIDs(ctx context.Context) ([]int64, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT e.material_id
 		FROM knowledge_entries e
 		LEFT JOIN knowledge_chunks c ON c.knowledge_entry_id = e.id AND c.index_status='ready'
 		GROUP BY e.material_id
 		HAVING COUNT(c.id)=0`)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
+	return scanIDs(rows)
+}
+
+func (s *Service) readyChunkCount(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM knowledge_chunks WHERE index_status='ready'`).Scan(&n)
+	return n, err
+}
+
+func (s *Service) allMaterialIDs(ctx context.Context) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT material_id FROM knowledge_entries`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanIDs(rows)
+}
+
+func scanIDs(rows *sql.Rows) ([]int64, error) {
 	var ids []int64
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			return err
+			return nil, err
 		}
 		ids = append(ids, id)
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
+	return ids, rows.Err()
+}
+
+func (s *Service) indexMaterials(ctx context.Context, ids []int64) error {
 	var last error
 	for _, id := range ids {
 		if err := s.IndexMaterial(ctx, id, chunk.Options{Strategy: chunk.StrategyAuto}); err != nil {
@@ -120,6 +177,10 @@ func (s *Service) IndexMaterial(ctx context.Context, materialID int64, opt chunk
 		if len(vecs[i]) == 0 {
 			s.markFailed(ctx, ids)
 			return errors.New("empty embedding")
+		}
+		if want := s.embed.Dim(); len(vecs[i]) != want {
+			s.markFailed(ctx, ids)
+			return fmt.Errorf("embedding dim %d, want %d", len(vecs[i]), want)
 		}
 		points = append(points, qdrant.Point{
 			ID:     uint64(id),
