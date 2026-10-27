@@ -25,7 +25,11 @@ func main() {
 	})
 	mux.HandleFunc("POST /mcp", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(r, token) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      nil,
+				"error":   map[string]any{"code": -32001, "message": "令牌缺失或不正确"},
+			})
 			return
 		}
 		handleMCP(w, r)
@@ -76,6 +80,10 @@ func handleMCP(w http.ResponseWriter, r *http.Request) {
 			writeRPCError(w, req.ID, -32602, "tools/call 缺少参数")
 			return
 		}
+		if !knownTool(params.Name) {
+			writeRPCError(w, req.ID, -32602, "没有这个工具："+params.Name)
+			return
+		}
 		text, callErr := callTool(params.Name, params.Arguments)
 		if callErr != nil {
 			writeRPC(w, req.ID, map[string]any{
@@ -120,6 +128,15 @@ func toolList() []map[string]any {
 			},
 		},
 	}
+}
+
+func knownTool(name string) bool {
+	for _, t := range toolList() {
+		if t["name"] == name {
+			return true
+		}
+	}
+	return false
 }
 
 func callTool(name string, args json.RawMessage) (string, error) {

@@ -284,6 +284,9 @@ func migrateStudio(ctx context.Context, conn *sql.DB) error {
 			return err
 		}
 	}
+	if err := addColumn(ctx, conn, "mcp_calls", "conversation_id", "BIGINT NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	_, _ = conn.ExecContext(ctx, `CREATE UNIQUE INDEX uq_skills_seed ON skills (seed_key)`)
 	_, _ = conn.ExecContext(ctx, `CREATE UNIQUE INDEX uq_skills_class_name ON skills (class_id, name)`)
 	return nil
@@ -325,6 +328,9 @@ func Seed(ctx context.Context, conn *sql.DB, cfg config.Config) error {
 		return err
 	}
 	if err := ensureUser(ctx, conn, "student_b1", cfg.SeedStudentBPassword, "student", "B"); err != nil {
+		return err
+	}
+	if err := ensureUser(ctx, conn, "teacher_b", cfg.SeedTeacherPassword, "teacher", "B"); err != nil {
 		return err
 	}
 	materials := []seedMaterial{

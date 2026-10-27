@@ -43,6 +43,8 @@ services:
       CHAT_API_KEY: ${CHAT_API_KEY:?CHAT_API_KEY is required}
       CHAT_MODEL: ${CHAT_MODEL:?CHAT_MODEL is required}
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+      TOOL_MAX_ROUNDS: ${TOOL_MAX_ROUNDS:-}
+      TOOL_MAX_CALLS: ${TOOL_MAX_CALLS:-}
     volumes:
       - uploads:/data/uploads
     depends_on:

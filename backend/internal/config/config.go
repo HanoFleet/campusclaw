@@ -33,6 +33,8 @@ type Config struct {
 	ChatAPIKey           string
 	ChatModel            string
 	MCPAuthToken         string
+	ToolMaxRounds        int
+	ToolMaxCalls         int
 }
 
 func Load() (Config, error) {
@@ -105,6 +107,14 @@ func Load() (Config, error) {
 	if err != nil || lockMin <= 0 {
 		return Config{}, fmt.Errorf("LOGIN_LOCK_MINUTES must be a positive integer")
 	}
+	cfg.ToolMaxRounds, err = optionalLimit("TOOL_MAX_ROUNDS", 3)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ToolMaxCalls, err = optionalLimit("TOOL_MAX_CALLS", 4)
+	if err != nil {
+		return Config{}, err
+	}
 	if _, err := strconv.Atoi(cfg.DBPort); err != nil {
 		return Config{}, fmt.Errorf("DB_PORT must be numeric")
 	}
@@ -114,4 +124,17 @@ func Load() (Config, error) {
 	cfg.LoginFailThreshold = failN
 	cfg.LoginLock = time.Duration(lockMin) * time.Minute
 	return cfg, nil
+}
+
+// optionalLimit 读可选的上限配置，没写时用默认值，写了必须是 1 到 10 的整数。
+func optionalLimit(key string, def int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > 10 {
+		return 0, fmt.Errorf("%s must be an integer from 1 to 10", key)
+	}
+	return n, nil
 }

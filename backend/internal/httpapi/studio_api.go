@@ -37,6 +37,7 @@ func (s *Server) registerStudio() {
 	s.mux.HandleFunc("POST /api/mcp/servers", s.createMCPServer)
 	s.mux.HandleFunc("POST /api/mcp/servers/{id}/connect", s.connectMCPServer)
 	s.mux.HandleFunc("POST /api/mcp/servers/{id}/disconnect", s.disconnectMCPServer)
+	s.mux.HandleFunc("DELETE /api/mcp/servers/{id}", s.deleteMCPServer)
 	s.mux.HandleFunc("GET /api/mcp/servers/{id}/tools", s.listMCPTools)
 	s.mux.HandleFunc("GET /api/mcp/audits", s.listMCPAudits)
 }
@@ -536,11 +537,13 @@ func (s *Server) postConversationMessage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	runner := studio.Runner{
-		DB:    s.db,
-		Retr:  s.retr,
-		Chat:  chat.New(s.cfg.ChatURL, s.cfg.ChatAPIKey, s.cfg.ChatModel),
-		Host:  &mcphost.Host{DB: s.db},
-		Model: s.cfg.ChatModel,
+		DB:        s.db,
+		Retr:      s.retr,
+		Chat:      chat.New(s.cfg.ChatURL, s.cfg.ChatAPIKey, s.cfg.ChatModel),
+		Host:      &mcphost.Host{DB: s.db},
+		Model:     s.cfg.ChatModel,
+		MaxRounds: s.cfg.ToolMaxRounds,
+		MaxCalls:  s.cfg.ToolMaxCalls,
 	}
 	started := false
 	err := runner.Run(r.Context(), studio.Input{
@@ -773,14 +776,45 @@ func (s *Server) listMCPTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tools": list})
 }
 
+func (s *Server) deleteMCPServer(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	err := (&mcphost.Host{DB: s.db}).Delete(r.Context(), u.ClassID, id)
+	if errors.Is(err, mcphost.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (s *Server) listMCPAudits(w http.ResponseWriter, r *http.Request) {
 	u, ok := s.requireTeacher(w, r)
 	if !ok {
 		return
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT c.id, c.ref_text, c.status, c.detail, c.round_no, c.created_at, u.username
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 200 {
+			writeDetail(w, http.StatusBadRequest, "invalid_request", "limit 需要是 1 到 200 的整数")
+			return
+		}
+		limit = n
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT c.id, c.ref_text, c.server_name, c.tool_name, c.status, c.detail,
+		c.conversation_id, c.round_no, c.created_at, u.username
 		FROM mcp_calls c LEFT JOIN users u ON u.id=c.user_id
-		WHERE c.class_id=? ORDER BY c.id DESC LIMIT 50`, u.ClassID)
+		WHERE c.class_id=? ORDER BY c.id DESC LIMIT ?`, u.ClassID, limit)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "unavailable")
 		return
@@ -788,25 +822,22 @@ func (s *Server) listMCPAudits(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	list := []map[string]any{}
 	for rows.Next() {
-		var id int64
-		var ref, status, detail string
+		var id, conv int64
+		var ref, server, tool, status, detail string
 		var round int
 		var created time.Time
 		var username sql.NullString
-		if err := rows.Scan(&id, &ref, &status, &detail, &round, &created, &username); err != nil {
+		if err := rows.Scan(&id, &ref, &server, &tool, &status, &detail, &conv, &round, &created, &username); err != nil {
 			writeError(w, http.StatusServiceUnavailable, "unavailable")
 			return
 		}
-		who := ""
-		if username.Valid {
-			who = username.String
-		}
 		list = append(list, map[string]any{
-			"id": id, "ref": ref, "status": status, "detail": detail, "round": round,
-			"username": who, "created_at": created.UTC().Format(time.RFC3339),
+			"id": id, "ref": ref, "server": server, "tool": tool, "status": status, "detail": detail,
+			"conversation_id": conv, "round": round,
+			"username": username.String, "created_at": created.UTC().Format(time.RFC3339),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"audits": list})
+	writeJSON(w, http.StatusOK, map[string]any{"audits": list, "limit": limit})
 }
 
 func (s *Server) requireTeacher(w http.ResponseWriter, r *http.Request) (*User, bool) {

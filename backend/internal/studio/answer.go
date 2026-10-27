@@ -17,8 +17,11 @@ import (
 
 var citeRe = regexp.MustCompile(`\[[0-9]+\]`)
 
-// maxRounds 是一次提问最多请求模型的次数；最后一次不再提供工具，让模型直接作答。
-const maxRounds = 3
+// 没有配置时的默认上限：带工具的请求最多 3 次，一次提问里最多执行 4 次工具。
+const (
+	defaultMaxRounds = 3
+	defaultMaxCalls  = 4
+)
 
 var (
 	ErrNotFound    = errors.New("not found")
@@ -32,6 +35,10 @@ type Runner struct {
 	Chat  chat.Completer
 	Host  *mcphost.Host
 	Model string
+	// MaxRounds 是带工具的请求次数上限，MaxCalls 是累计执行工具的次数上限。
+	// 到了任一上限就不再提供工具，让模型用已有信息作答。
+	MaxRounds int
+	MaxCalls  int
 }
 
 type Input struct {
@@ -48,8 +55,9 @@ type Round struct {
 }
 
 type Trace struct {
-	Skill  string  `json:"skill,omitempty"`
-	Rounds []Round `json:"rounds"`
+	Skill  string           `json:"skill,omitempty"`
+	Tools  []map[string]any `json:"tools,omitempty"`
+	Rounds []Round          `json:"rounds"`
 }
 
 func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error) error {
@@ -125,7 +133,8 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 	if route.Skill != nil {
 		refs = route.Skill.Tools
 	}
-	bound, denied, err := r.Host.Prepare(ctx, classID, in.UserID, refs)
+	scope := mcphost.Scope{ClassID: classID, UserID: in.UserID, ConversationID: in.ConversationID}
+	bound, denied, err := r.Host.Prepare(ctx, scope, refs)
 	if err != nil {
 		return ErrUnavailable
 	}
@@ -143,7 +152,15 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 	messages := TurnMessages(prompt, route.Skill, history, query, hits)
 
 	var calls []mcphost.CallStatus
-	calls = append(calls, denied...)
+	note := func(c mcphost.CallStatus) error {
+		calls = append(calls, c)
+		return emit("tool", publicCall(c))
+	}
+	for _, c := range denied {
+		if err := note(c); err != nil {
+			return err
+		}
+	}
 	var rounds []Round
 	ask := func(tools []chat.ToolDef) (chat.Completion, error) {
 		req, _ := json.Marshal(chat.Payload(r.Model, messages, tools))
@@ -160,11 +177,15 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 		return comp, nil
 	}
 	content := ""
-	for round := 1; round <= maxRounds; round++ {
+	maxRounds, maxCalls := limit(r.MaxRounds, defaultMaxRounds), limit(r.MaxCalls, defaultMaxCalls)
+	used := 0
+	for round := 1; ; round++ {
 		offer := toolDefs
-		if round == maxRounds && round > 1 {
+		if round > maxRounds || used >= maxCalls {
 			offer = nil
-			messages = append(messages, chat.Message{Role: "system", Content: "工具调用已经到上限。请根据已有信息直接回答，不要再调用工具。"})
+			if len(toolDefs) > 0 {
+				messages = append(messages, chat.Message{Role: "system", Content: "工具调用已经到上限。请根据已有信息直接回答，不要再调用工具。"})
+			}
 		}
 		comp, err := ask(offer)
 		if err != nil {
@@ -178,12 +199,18 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 		for _, call := range comp.ToolCalls {
 			ref := refByName[call.Name]
 			var result mcphost.CallStatus
-			if ref == "" {
+			switch {
+			case ref == "":
 				result = mcphost.CallStatus{Ref: call.Name, Status: "denied", Detail: "不在这次允许的工具里", Text: "这个工具不在本次允许的清单里。"}
-			} else {
-				result = r.Host.Invoke(ctx, classID, in.UserID, ref, json.RawMessage(call.Arguments), round)
+			case used >= maxCalls:
+				result = r.Host.Refuse(ctx, scope, ref, "超过本次提问的调用次数上限", round)
+			default:
+				used++
+				result = r.Host.Invoke(ctx, scope, ref, json.RawMessage(call.Arguments), round)
 			}
-			calls = append(calls, result)
+			if err := note(result); err != nil {
+				return err
+			}
 			messages = append(messages, chat.Message{Role: "tool", ToolCallID: call.ID, Content: result.Text})
 		}
 	}
@@ -202,7 +229,7 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 		content = "这次没有写出可用的回答。"
 	}
 
-	trace := Trace{Rounds: rounds}
+	trace := Trace{Rounds: rounds, Tools: publicCalls(calls)}
 	if route.Skill != nil {
 		trace.Skill = route.Skill.Name
 	}
@@ -213,14 +240,8 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 	if route.Skill != nil {
 		meta["skill"] = map[string]string{"name": route.Skill.Name}
 	}
-	publicCalls := publicCalls(calls)
-	if len(publicCalls) > 0 {
-		meta["tool_calls"] = publicCalls
-	}
-	for _, call := range publicCalls {
-		if err := emit("tool", call); err != nil {
-			return err
-		}
+	if len(trace.Tools) > 0 {
+		meta["tool_calls"] = trace.Tools
 	}
 	if err := emit("meta", meta); err != nil {
 		return err
@@ -319,13 +340,17 @@ func (r *Runner) saveExchange(ctx context.Context, in Input, round int, req, res
 		in.ClassID, in.UserID, in.ConversationID, round, string(req), string(resp), time.Now().UTC())
 }
 
+func publicCall(c mcphost.CallStatus) map[string]any {
+	return map[string]any{"ref": c.Ref, "status": c.Status, "detail": c.Detail}
+}
+
 func publicCalls(calls []mcphost.CallStatus) []map[string]any {
 	if len(calls) == 0 {
 		return nil
 	}
 	out := make([]map[string]any, 0, len(calls))
 	for _, c := range calls {
-		out = append(out, map[string]any{"ref": c.Ref, "status": c.Status, "detail": c.Detail})
+		out = append(out, publicCall(c))
 	}
 	return out
 }
@@ -351,4 +376,11 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func limit(v, def int) int {
+	if v <= 0 {
+		return def
+	}
+	return v
 }
