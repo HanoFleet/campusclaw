@@ -17,6 +17,9 @@ import (
 
 var citeRe = regexp.MustCompile(`\[[0-9]+\]`)
 
+// maxRounds 是一次提问最多请求模型的次数；最后一次不再提供工具，让模型直接作答。
+const maxRounds = 3
+
 var (
 	ErrNotFound    = errors.New("not found")
 	ErrUnavailable = errors.New("unavailable")
@@ -38,18 +41,15 @@ type Input struct {
 	Query          string
 }
 
+// Round 是一次调用模型接口：Request 是实际发出的请求体，Response 是接口原样返回的内容。
+type Round struct {
+	Request  json.RawMessage `json:"request"`
+	Response json.RawMessage `json:"response"`
+}
+
 type Trace struct {
-	Model                  string           `json:"model"`
-	Temperature            float64          `json:"temperature"`
-	Messages               []chat.Message   `json:"messages"`
-	Tools                  []map[string]any `json:"tools,omitempty"`
-	PromptTemplate         string           `json:"prompt_template"`
-	PromptTemplateIncluded bool             `json:"prompt_template_included"`
-	Knowledge              map[string]any   `json:"knowledge"`
-	Skill                  map[string]any   `json:"skill"`
-	SkillExecution         string           `json:"skill_execution"`
-	MCP                    map[string]any   `json:"mcp"`
-	Rounds                 int              `json:"rounds"`
+	Skill  string  `json:"skill,omitempty"`
+	Rounds []Round `json:"rounds"`
 }
 
 func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error) error {
@@ -97,12 +97,12 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 		_, _ = r.DB.ExecContext(ctx, `UPDATE conversations SET updated_at=? WHERE id=?`, now, in.ConversationID)
 	}
 
-	hits, err := r.Retr.SearchBound(ctx, classID, materialIDs, query, 4)
-	if err != nil {
-		if errors.Is(err, retrieval.ErrUnavailable) {
+	hits := []retrieval.Hit{}
+	if NeedsSearch(route.Skill) {
+		hits, err = r.Retr.SearchBound(ctx, classID, materialIDs, query, 4)
+		if err != nil {
 			return ErrUnavailable
 		}
-		return ErrUnavailable
 	}
 	if route.Skill != nil && strings.TrimSpace(route.Skill.Subject) != "" {
 		filtered := hits[:0]
@@ -119,7 +119,7 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 			compact = append(compact, h)
 		}
 	}
-	hits = append([]retrieval.Hit(nil), compact...)
+	hits = append([]retrieval.Hit{}, compact...)
 
 	var refs []string
 	if route.Skill != nil {
@@ -141,28 +141,36 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 		return err
 	}
 	messages := TurnMessages(prompt, route.Skill, history, query, hits)
-	sentPrompt := strings.TrimSpace(prompt)
-	if sentPrompt == "" {
-		sentPrompt = DefaultPrompt
-	}
 
 	var calls []mcphost.CallStatus
 	calls = append(calls, denied...)
-	content := ""
-	rounds := 0
-	for round := 1; round <= 3; round++ {
-		rounds = round
-		req := requestBody(r.Model, messages, toolDefs)
-		comp, err := r.Chat.Round(ctx, messages, toolDefs)
+	var rounds []Round
+	ask := func(tools []chat.ToolDef) (chat.Completion, error) {
+		req, _ := json.Marshal(chat.Payload(r.Model, messages, tools))
+		comp, err := r.Chat.Round(ctx, messages, tools)
 		if err != nil {
-			return ErrUnavailable
+			return comp, ErrUnavailable
 		}
-		resp, _ := json.Marshal(comp)
-		if len(comp.Raw) > 0 {
-			resp = comp.Raw
+		resp := comp.Raw
+		if len(resp) == 0 {
+			resp, _ = json.Marshal(comp)
 		}
-		r.saveExchange(ctx, in, round, req, resp)
-		if len(comp.ToolCalls) == 0 || len(toolDefs) == 0 {
+		rounds = append(rounds, Round{Request: req, Response: resp})
+		r.saveExchange(ctx, in, len(rounds), req, resp)
+		return comp, nil
+	}
+	content := ""
+	for round := 1; round <= maxRounds; round++ {
+		offer := toolDefs
+		if round == maxRounds && round > 1 {
+			offer = nil
+			messages = append(messages, chat.Message{Role: "system", Content: "工具调用已经到上限。请根据已有信息直接回答，不要再调用工具。"})
+		}
+		comp, err := ask(offer)
+		if err != nil {
+			return err
+		}
+		if len(comp.ToolCalls) == 0 || len(offer) == 0 {
 			content = comp.Content
 			break
 		}
@@ -178,18 +186,13 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 			calls = append(calls, result)
 			messages = append(messages, chat.Message{Role: "tool", ToolCallID: call.ID, Content: result.Text})
 		}
-		toolDefs = nil
-		if round == 3 {
-			messages = append(messages, chat.Message{Role: "system", Content: "工具调用已经到上限。请根据已有信息直接回答，不要再调用工具。"})
-		}
 	}
 	if strings.TrimSpace(content) == "" {
-		comp, err := r.Chat.Round(ctx, messages, nil)
+		comp, err := ask(nil)
 		if err != nil {
-			return ErrUnavailable
+			return err
 		}
 		content = comp.Content
-		rounds++
 	}
 	if len(hits) == 0 {
 		content = citeRe.ReplaceAllString(content, "")
@@ -199,7 +202,10 @@ func (r *Runner) Run(ctx context.Context, in Input, emit func(string, any) error
 		content = "这次没有写出可用的回答。"
 	}
 
-	trace := r.trace(r.Model, sentPrompt, messages, bound, route, materialIDs, hits, calls, rounds, skills)
+	trace := Trace{Rounds: rounds}
+	if route.Skill != nil {
+		trace.Skill = route.Skill.Name
+	}
 	meta := map[string]any{
 		"status":    "ok",
 		"citations": hits,
@@ -311,108 +317,6 @@ func (r *Runner) saveExchange(ctx context.Context, in Input, round int, req, res
 		(class_id, user_id, conversation_id, round_no, request_json, response_json, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		in.ClassID, in.UserID, in.ConversationID, round, string(req), string(resp), time.Now().UTC())
-}
-
-func (r *Runner) trace(model, prompt string, messages []chat.Message, bound []mcphost.BoundTool, route RouteHit, materialIDs []int64, hits []retrieval.Hit, calls []mcphost.CallStatus, rounds int, all []Skill) Trace {
-	sentChars := 0
-	for _, h := range hits {
-		sentChars += utf8.RuneCountInString(clipRunes(h.Excerpt, excerptRunes))
-	}
-	skillInfo := map[string]any{
-		"selected":                   nil,
-		"sent_full_skill_file":       false,
-		"sent_description_only":      route.Skill != nil,
-		"other_bound_skills_omitted": omitted(all, route.Skill),
-	}
-	if route.Skill != nil {
-		skillInfo["selected"] = route.Skill.Name
-		skillInfo["description_chars"] = utf8.RuneCountInString(route.Skill.Description)
-		skillInfo["matched_words"] = route.Matched
-	}
-	toolPayload := make([]map[string]any, 0, len(bound))
-	for _, item := range bound {
-		toolPayload = append(toolPayload, map[string]any{
-			"ref":         item.Ref,
-			"name":        item.Def.Name,
-			"description": item.Def.Description,
-			"parameters":  json.RawMessage(item.Def.Parameters),
-		})
-	}
-	return Trace{
-		Model:                  model,
-		Temperature:            0,
-		Messages:               messages,
-		Tools:                  toolPayload,
-		PromptTemplate:         prompt,
-		PromptTemplateIncluded: true,
-		Knowledge: map[string]any{
-			"bound_material_count": len(materialIDs),
-			"sent_full_text":       false,
-			"hit_count":            len(hits),
-			"sent_excerpt_chars":   sentChars,
-			"note":                 "绑定知识库后，每次只把检索到的前 4 条片段放进用户消息，不会把材料全文传给模型。",
-		},
-		Skill:          skillInfo,
-		SkillExecution: executionText(route),
-		MCP: map[string]any{
-			"declarations_sent": toolPayload,
-			"calls":             publicCalls(calls),
-			"note":              "发给模型的是工具名称、说明和参数结构。令牌和工具实现留在服务端，模型只返回工具名和参数。",
-		},
-		Rounds: rounds,
-	}
-}
-
-func executionText(route RouteHit) string {
-	if route.Skill == nil {
-		return "服务端先取出这个智能体绑定且启用的技能，再按适用条件做逐词匹配。这次没有词命中，所以不选技能，系统消息里也不会放任何技能说明。"
-	}
-	return "服务端不把选择权交给模型。它只在这个智能体绑定且启用的技能里，把适用条件切成词，看提问里出现了哪些，取得分最高的「" + route.Skill.Name + "」。选中之后，只把这一条技能的说明放进系统消息，其他技能的正文不会传。若名称里含有「解题引导」，再追加一条不写最终得数的要求。技能上的 knowledge_search 表示先做检索；写成「工具名@服务器名」的，才会变成发给模型的工具声明。"
-}
-
-func omitted(all []Skill, picked *Skill) []string {
-	var names []string
-	for _, s := range all {
-		if !s.Enabled {
-			continue
-		}
-		if picked != nil && s.ID == picked.ID {
-			continue
-		}
-		names = append(names, s.Name)
-	}
-	if names == nil {
-		names = []string{}
-	}
-	return names
-}
-
-func requestBody(model string, messages []chat.Message, tools []chat.ToolDef) json.RawMessage {
-	payload := map[string]any{
-		"model":       model,
-		"temperature": 0,
-		"messages":    messages,
-	}
-	if len(tools) > 0 {
-		list := make([]map[string]any, 0, len(tools))
-		for _, t := range tools {
-			params := t.Parameters
-			if len(params) == 0 {
-				params = json.RawMessage(`{"type":"object","properties":{}}`)
-			}
-			list = append(list, map[string]any{
-				"type": "function",
-				"function": map[string]any{
-					"name":        t.Name,
-					"description": t.Description,
-					"parameters":  params,
-				},
-			})
-		}
-		payload["tools"] = list
-	}
-	b, _ := json.Marshal(payload)
-	return b
 }
 
 func publicCalls(calls []mcphost.CallStatus) []map[string]any {

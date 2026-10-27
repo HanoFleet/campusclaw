@@ -35,9 +35,13 @@ func TurnMessages(prompt string, skill *Skill, history []chat.Message, question 
 		}
 	}
 	sys.WriteString("\n\n")
-	if len(hits) > 0 {
+	searched := NeedsSearch(skill)
+	switch {
+	case len(hits) > 0:
 		sys.WriteString("优先使用用户消息里的编号资料。被资料支撑的说法标出 [1]、[2]，编号必须和资料顺序一致。")
-	} else {
+	case !searched:
+		sys.WriteString("这个技能不查材料，需要时使用提供的工具。不要写出 [1] 这样的编号。")
+	default:
 		sys.WriteString("这次没有检索到可用资料。不要写出 [1] 这样的编号，也不要整段回复「资料中未找到相关内容」。按角色直接回答。")
 	}
 	sys.WriteString("\n不要说明你是什么模型。")
@@ -56,7 +60,10 @@ func TurnMessages(prompt string, skill *Skill, history []chat.Message, question 
 		out = append(out, chat.Message{Role: role, Content: text})
 	}
 	// 历史里已经包含刚写入的原始提问。发给模型时，用「提问 + 编号资料」替换最后一条用户消息。
-	assembled := assembleUser(question, hits)
+	assembled := strings.TrimSpace(question)
+	if searched {
+		assembled = assembleUser(question, hits)
+	}
 	replaced := false
 	for i := len(out) - 1; i >= 0; i-- {
 		if out[i].Role == "user" {
@@ -69,6 +76,20 @@ func TurnMessages(prompt string, skill *Skill, history []chat.Message, question 
 		out = append(out, chat.Message{Role: "user", Content: assembled})
 	}
 	return out
+}
+
+// NeedsSearch 判断这次要不要检索材料。没选中技能时照常检索；
+// 选中的技能只有在工具里写了 knowledge_search 时才检索。
+func NeedsSearch(skill *Skill) bool {
+	if skill == nil {
+		return true
+	}
+	for _, t := range skill.Tools {
+		if t == "knowledge_search" {
+			return true
+		}
+	}
+	return false
 }
 
 func assembleUser(question string, hits []retrieval.Hit) string {

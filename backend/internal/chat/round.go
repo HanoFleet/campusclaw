@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -15,21 +17,35 @@ func (Local) Round(_ context.Context, messages []Message, tools []ToolDef) (Comp
 		return Completion{Content: "请再说具体一点。"}, nil
 	}
 	question := lastUserText(messages)
+	if i := strings.Index(question, "\n\n"); i >= 0 {
+		question = question[:i]
+	}
 	if !hasToolResult(messages) {
 		if call, ok := localToolCall(question, tools); ok {
-			raw, _ := json.Marshal(map[string]any{"tool_calls": []ToolCall{call}})
-			return Completion{ToolCalls: []ToolCall{call}, Raw: raw}, nil
+			return Completion{ToolCalls: []ToolCall{call}, Raw: localRaw("", []ToolCall{call})}, nil
 		}
 	}
 	content := localAnswer(messages, question)
-	raw, _ := json.Marshal(map[string]string{"content": content})
-	return Completion{Content: content, Raw: raw}, nil
+	return Completion{Content: content, Raw: localRaw(content, nil)}, nil
 }
 
-func (h *HTTP) Round(ctx context.Context, messages []Message, tools []ToolDef) (Completion, error) {
-	h.calls.Add(1)
+// localRaw 让本地替身的返回和 OpenAI 兼容接口长得一样，方便同样解析和展示。
+func localRaw(content string, calls []ToolCall) json.RawMessage {
+	msg := map[string]any{"role": "assistant", "content": content}
+	if len(calls) > 0 {
+		msg["tool_calls"] = openAIMessages([]Message{{ToolCalls: calls}})[0]["tool_calls"]
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"model":   "local-extractive",
+		"choices": []map[string]any{{"index": 0, "message": msg}},
+	})
+	return raw
+}
+
+// Payload 是调用 /chat/completions 时的请求体。记录日志和真正发送都用它。
+func Payload(model string, messages []Message, tools []ToolDef) map[string]any {
 	payload := map[string]any{
-		"model":       h.model,
+		"model":       model,
 		"temperature": 0,
 		"messages":    openAIMessages(messages),
 	}
@@ -37,7 +53,12 @@ func (h *HTTP) Round(ctx context.Context, messages []Message, tools []ToolDef) (
 		payload["tools"] = openAITools(tools)
 		payload["tool_choice"] = "auto"
 	}
-	body, err := json.Marshal(payload)
+	return payload
+}
+
+func (h *HTTP) Round(ctx context.Context, messages []Message, tools []ToolDef) (Completion, error) {
+	h.calls.Add(1)
+	body, err := json.Marshal(Payload(h.model, messages, tools))
 	if err != nil {
 		return Completion{}, err
 	}
@@ -179,7 +200,7 @@ func localToolCall(question string, tools []ToolDef) (ToolCall, bool) {
 }
 
 func wantsConvert(q string) bool {
-	return strings.Contains(q, "换算") || strings.Contains(q, "厘米") || strings.Contains(q, "毫米") || strings.Contains(q, "千克")
+	return strings.Contains(q, "换算") || strings.Contains(q, "厘米") || strings.Contains(q, "毫米") || strings.Contains(q, "千克") || strings.Contains(q, "千米")
 }
 
 func guessConvert(q string) map[string]any {
@@ -191,8 +212,16 @@ func guessConvert(q string) map[string]any {
 	} else if strings.Contains(q, "千米") {
 		from, to = "km", "m"
 	}
-	return map[string]any{"value": 1, "from": from, "to": to}
+	value := 1.0
+	if m := numberRe.FindString(q); m != "" {
+		if v, err := strconv.ParseFloat(m, 64); err == nil {
+			value = v
+		}
+	}
+	return map[string]any{"value": value, "from": from, "to": to}
 }
+
+var numberRe = regexp.MustCompile(`[0-9]+(\.[0-9]+)?`)
 
 func localAnswer(messages []Message, question string) string {
 	var toolText string
@@ -209,12 +238,12 @@ func localAnswer(messages []Message, question string) string {
 		return strings.TrimSpace(toolText)
 	}
 	guide := strings.Contains(system, "解题引导") || strings.Contains(system, "不要写出最终得数")
-	noHit := strings.Contains(system, "没有检索到可用资料")
+	noHit := strings.Contains(system, "不要写出 [1]")
 	if noHit {
 		if guide {
 			return "先停在你已经写出的那一步，检查括号或单位有没有漏乘。这里不直接给得数。"
 		}
-		return "这个问题可以按助手的角色接着说，不过绑定的材料里没有对应段落，所以不能标出处。"
+		return "这次没有可以引用的材料段落，也没有拿到工具结果，我先不下结论。可以把问题说得更具体一些再问。"
 	}
 	if guide {
 		line := "先检查这一步有没有做对，先不要算最后的得数。"

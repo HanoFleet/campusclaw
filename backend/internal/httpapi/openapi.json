@@ -17,6 +17,10 @@
       "get": {"security": [{"bearer": []}], "summary": "列出本班应用。学生只看到已启用的", "responses": {"200": {"description": "agents"}, "401": {"description": "unauthorized"}}},
       "post": {"security": [{"bearer": []}], "summary": "教师新建应用并绑定技能和材料", "responses": {"201": {"description": "created"}, "403": {"description": "forbidden"}, "404": {"description": "绑定了不存在的技能或材料"}}}
     },
+    "/api/agents/{id}": {
+      "get": {"security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}], "summary": "查看一个应用，含绑定的技能和材料", "responses": {"200": {"description": "name, prompt, enabled, skill_ids, material_ids"}, "404": {"description": "not_found"}}},
+      "put": {"security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}], "summary": "教师修改应用的提示词、绑定和启用状态", "responses": {"200": {"description": "ok"}, "403": {"description": "forbidden"}, "404": {"description": "not_found"}}}
+    },
     "/api/skills": {
       "get": {"security": [{"bearer": []}], "summary": "列出本班技能", "responses": {"200": {"description": "skills"}}},
       "post": {"security": [{"bearer": []}], "summary": "教师提交或上传技能全文", "responses": {"201": {"description": "created"}, "400": {"description": "invalid_skill"}}}
@@ -26,7 +30,10 @@
       "post": {"security": [{"bearer": []}], "summary": "选定一个已启用的本班应用后新建会话", "responses": {"201": {"description": "created"}, "404": {"description": "not_found"}}}
     },
     "/api/conversations/{id}/messages": {
-      "post": {"security": [{"bearer": []}], "summary": "发送一条消息，以 SSE 返回 meta、delta、done", "responses": {"200": {"description": "text/event-stream"}, "400": {"description": "invalid_query"}, "404": {"description": "not_found"}}}
+      "post": {"security": [{"bearer": []}], "summary": "发送一条消息，以 SSE 返回 tool、meta、delta、done", "responses": {"200": {"description": "text/event-stream"}, "400": {"description": "invalid_query"}, "404": {"description": "not_found"}}}
+    },
+    "/api/conversations/{id}/exchanges": {
+      "get": {"security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}], "summary": "这个对话里每次调用模型的请求体和返回内容", "responses": {"200": {"description": "exchanges: round, request, response, created_at"}, "404": {"description": "not_found"}}}
     },
     "/api/mcp/servers": {
       "get": {"security": [{"bearer": []}], "summary": "列出本班 MCP 服务器，不返回令牌", "responses": {"200": {"description": "servers"}}},
