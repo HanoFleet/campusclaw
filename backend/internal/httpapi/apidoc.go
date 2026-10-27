@@ -59,7 +59,8 @@ type agentItem struct {
 	ID      int64  `json:"id"`
 	Name    string `json:"name"`
 	Prompt  string `json:"prompt" doc:"角色提示词，留空时使用默认角色"`
-	Enabled bool   `json:"enabled"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt string `json:"created_at"`
 }
 
 type agentsOut struct {
