@@ -112,9 +112,9 @@ func toolList() []map[string]any {
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"value": map[string]string{"type": "number"},
-					"from":  map[string]string{"type": "string", "description": "m、cm、mm、km、g、kg"},
-					"to":    map[string]string{"type": "string"},
+					"value": map[string]any{"type": "number", "description": "要换算的数值"},
+					"from":  map[string]any{"type": "string", "enum": unitSymbols, "description": "原来的单位符号"},
+					"to":    map[string]any{"type": "string", "enum": unitSymbols, "description": "目标单位符号"},
 				},
 				"required": []string{"value", "from", "to"},
 			},
@@ -158,9 +158,23 @@ func formulaHint(topic string) string {
 	}
 }
 
+var unitSymbols = []string{"mm", "cm", "m", "km", "g", "kg"}
+
+var unitAliases = map[string]string{
+	"毫米": "mm", "厘米": "cm", "米": "m", "千米": "km", "公里": "km", "克": "g", "千克": "kg", "公斤": "kg",
+}
+
+func normalizeUnit(u string) string {
+	u = strings.ToLower(strings.TrimSpace(u))
+	if s, ok := unitAliases[u]; ok {
+		return s
+	}
+	return u
+}
+
 func unitConvert(value float64, from, to string) (string, error) {
-	from = strings.ToLower(strings.TrimSpace(from))
-	to = strings.ToLower(strings.TrimSpace(to))
+	from = normalizeUnit(from)
+	to = normalizeUnit(to)
 	scale := map[string]float64{"mm": 0.001, "cm": 0.01, "m": 1, "km": 1000, "g": 1, "kg": 1000}
 	length := map[string]bool{"mm": true, "cm": true, "m": true, "km": true}
 	a, ok1 := scale[from]

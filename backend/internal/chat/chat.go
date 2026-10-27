@@ -135,7 +135,7 @@ func NewHTTP(url, key, model string) *HTTP {
 		url:    strings.TrimRight(strings.TrimSpace(url), "/"),
 		key:    key,
 		model:  model,
-		client: &http.Client{Timeout: 45 * time.Second},
+		client: &http.Client{Timeout: 90 * time.Second},
 	}
 }
 

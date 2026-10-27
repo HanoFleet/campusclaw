@@ -84,7 +84,7 @@ python3 scripts/verify.py
 - 名称里带「解题引导」的技能不会直接给最终得数。
 - 「工具」页登记 MCP 服务器。令牌只存在服务端。连接成功后可以看到 `formula_hint` 和 `unit_convert`。技能里写成 `工具名@服务器名` 才会在这次提问里把工具声明发给模型。一次提问最多请求模型 3 次，最后一次不再提供工具。
 - 对话回答下面可以展开「模型调用记录」，按次列出实际发出的请求体（`model`、`temperature`、`messages`、`tools`、`tool_choice`）和接口返回的内容。同样的记录存在 `llm_exchanges` 表，也可以用 `GET /api/conversations/{id}/exchanges` 查看。
-- `.env` 里 `CHAT_URL=local` 时用的是项目自带的本地替身，不访问外部模型，但请求体和返回格式与 OpenAI 兼容接口一致；换成课程网关地址和密钥后走同一套代码。
+- 对话模型接课程网关时，`.env` 写 `CHAT_URL=https://ai-gateway.devops.hello1023.com/v1`、`CHAT_MODEL=course-chat`，`CHAT_API_KEY` 填网关页面上自己的密钥。`CHAT_URL=local` 时用项目自带的本地替身，不访问外部模型，请求体格式相同，适合离线跑测试。
 
 自建工具服务在 `mcp-server/`，和主应用同一个 Compose。`.env` 里要有 `MCP_AUTH_TOKEN`，两边用同一把。
 
