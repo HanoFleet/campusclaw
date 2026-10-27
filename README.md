@@ -54,6 +54,7 @@ docker compose exec db mysql -u"$DB_USER" -p"$DB_PASSWORD" campusclaw
 | `teacher_a` | 教师 | A | `.env` 里的 `SEED_TEACHER_PASSWORD` |
 | `student_a1` | 学生 | A | `SEED_STUDENT_A_PASSWORD` |
 | `student_b1` | 学生 | B | `SEED_STUDENT_B_PASSWORD` |
+| `teacher_b` | 教师 | B | 和 `teacher_a` 相同，用 `SEED_TEACHER_PASSWORD`，用来验证班级之间互相看不到 |
 
 预置材料标题是「A班-函数单调性讲义」和「B班-牛顿定律笔记」。A 班检索「牛顿定律」应当 `hits` 为空。接口是 `POST /api/search` 和 `POST /api/ask`。
 

@@ -17,17 +17,27 @@ type Skill = {
 };
 type Material = { id: number; title: string };
 type Server = { id: number; name: string; base_url: string; connected: boolean; last_error: string; has_token: boolean };
-type Audit = { id: number; ref: string; status: string; detail: string; username: string; created_at: string };
+type Audit = {
+  id: number;
+  ref: string;
+  status: string;
+  detail: string;
+  username: string;
+  created_at: string;
+  conversation_id: number;
+  round: number;
+};
+type ToolUse = { ref: string; status: string; detail?: string };
 type Conv = { id: number; title: string; agent_id: number; agent_name: string };
-type Msg = { id?: number; role: string; content: string; skill_name?: string; citations?: Cite[]; trace?: Trace };
-type Cite = { title?: string; chunk_index?: number; excerpt?: string };
+type Msg = { id?: number; role: string; content: string; skill_name?: string; citations?: Cite[]; tools?: ToolUse[]; trace?: Trace };
+type Cite = { material_id?: number; title?: string; chunk_index?: number; excerpt?: string };
 type SentCall = { id?: string; function?: { name?: string; arguments?: string } };
 type SentMessage = { role: string; content: string; tool_call_id?: string; tool_calls?: SentCall[] };
 type SentTool = { function?: { name?: string; description?: string; parameters?: unknown } };
 type ChatRequest = { model?: string; temperature?: number; messages?: SentMessage[]; tools?: SentTool[]; tool_choice?: string };
 type ChatResponse = { choices?: { message?: { content?: string | null; tool_calls?: SentCall[] } }[] };
 type Round = { request: ChatRequest; response: ChatResponse };
-type Trace = { skill?: string; rounds?: Round[] };
+type Trace = { skill?: string; tools?: ToolUse[]; rounds?: Round[] };
 
 export function StudioGate({ page, push }: { page: Page; push: (text: string) => void }) {
   const navigate = useNavigate();
@@ -200,9 +210,12 @@ function AppsPage({ me, push }: { me: Me; push: (text: string) => void }) {
   );
 }
 
+const skillSample = "名称：实验提示\n适用条件：实验,观察\n资料：科学\n工具：knowledge_search\n启用：是\n\n先让学生说出看到的现象，再引用材料里的句子。不要编造材料里没有的结论。\n";
+
 function SkillsPage({ me, push }: { me: Me; push: (text: string) => void }) {
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [source, setSource] = useState("名称：实验提示\n适用条件：实验,观察\n资料：科学\n工具：knowledge_search\n启用：是\n\n先让学生说出看到的现象，再引用材料里的句子。不要编造材料里没有的结论。\n");
+  const [source, setSource] = useState(skillSample);
+  const [editing, setEditing] = useState(0);
 
   async function load() {
     const data = await api<{ skills: Skill[] }>("/api/skills");
@@ -212,12 +225,18 @@ function SkillsPage({ me, push }: { me: Me; push: (text: string) => void }) {
     load().catch((err) => push(messageOf(err)));
   }, []);
 
+  async function submit(text: string, id: number) {
+    await api(id ? `/api/skills/${id}` : "/api/skills", { method: id ? "PUT" : "POST", body: JSON.stringify({ source: text }) });
+    await load();
+  }
+
   async function save(event: FormEvent) {
     event.preventDefault();
     try {
-      await api("/api/skills", { method: "POST", body: JSON.stringify({ source }) });
-      await load();
-      push("技能已上传");
+      await submit(source, editing);
+      push(editing ? "技能已修改" : "技能已上传");
+      setEditing(0);
+      setSource(skillSample);
     } catch (err) {
       push(messageOf(err));
     }
@@ -226,10 +245,47 @@ function SkillsPage({ me, push }: { me: Me; push: (text: string) => void }) {
   async function uploadFile(file: File) {
     const text = await file.text();
     setSource(text);
+    setEditing(0);
     try {
-      await api("/api/skills", { method: "POST", body: JSON.stringify({ source: text }) });
-      await load();
+      await submit(text, 0);
       push("技能文件已保存");
+    } catch (err) {
+      push(messageOf(err));
+    }
+  }
+
+  async function full(skill: Skill) {
+    return api<Skill>(`/api/skills/${skill.id}`);
+  }
+
+  async function edit(skill: Skill) {
+    try {
+      const detail = await full(skill);
+      setSource(detail.source_text ?? "");
+      setEditing(skill.id);
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    } catch (err) {
+      push(messageOf(err));
+    }
+  }
+
+  async function toggle(skill: Skill) {
+    try {
+      const detail = await full(skill);
+      const next = (detail.source_text ?? "").replace(/^(启用\s*[：:]).*$/m, `$1${skill.enabled ? "否" : "是"}`);
+      await submit(next, skill.id);
+      push(skill.enabled ? "技能已停用" : "技能已启用");
+    } catch (err) {
+      push(messageOf(err));
+    }
+  }
+
+  async function remove(skill: Skill) {
+    if (!window.confirm(`删除技能「${skill.name}」？绑定它的应用会一起解绑。`)) return;
+    try {
+      await api(`/api/skills/${skill.id}`, { method: "DELETE" });
+      await load();
+      push("技能已删除");
     } catch (err) {
       push(messageOf(err));
     }
@@ -241,28 +297,39 @@ function SkillsPage({ me, push }: { me: Me; push: (text: string) => void }) {
       <div className="studio-grid">
         {skills.map((skill) => (
           <article className="ask-card" key={skill.id}>
-            <h2>{skill.name}</h2>
+            <h2>{skill.name}{skill.enabled ? "" : "（已停用）"}</h2>
             <p>适用条件：{skill.trigger_text}</p>
             <p>资料范围：{skill.subject_text || "不限"}</p>
             <p>工具：{(skill.tools ?? []).join("，")}</p>
             <p>{skill.description}</p>
+            {me.role === "teacher" ? (
+              <div className="card-actions">
+                <button type="button" onClick={() => void edit(skill)}>修改</button>
+                <button type="button" onClick={() => void toggle(skill)}>{skill.enabled ? "停用" : "启用"}</button>
+                <button type="button" onClick={() => void remove(skill)}>删除</button>
+              </div>
+            ) : null}
           </article>
         ))}
       </div>
       {me.role === "teacher" ? (
         <form className="ask-card studio-form" onSubmit={save}>
-          <h2>上传技能</h2>
+          <h2>{editing ? "修改技能" : "上传技能"}</h2>
           <textarea value={source} onChange={(e) => setSource(e.target.value)} rows={10} aria-label="技能全文" />
           <div className="top-actions">
-            <button className="primary" type="submit">保存这段文字</button>
-            <label className="upload-btn">
-              选择文件
-              <input type="file" accept=".txt,.md,text/plain" hidden onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) void uploadFile(file);
-              }} />
-            </label>
+            <button className="primary" type="submit">{editing ? "保存修改" : "保存这段文字"}</button>
+            {editing ? (
+              <button type="button" onClick={() => { setEditing(0); setSource(skillSample); }}>取消修改</button>
+            ) : (
+              <label className="upload-btn">
+                选择文件
+                <input type="file" accept=".txt,.md,text/plain" hidden onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void uploadFile(file);
+                }} />
+              </label>
+            )}
           </div>
         </form>
       ) : null}
@@ -312,6 +379,17 @@ function ToolsPage({ me, push }: { me: Me; push: (text: string) => void }) {
     }
   }
 
+  async function remove(server: Server) {
+    if (!window.confirm(`删除服务器「${server.name}」？引用它的技能在提问时会被拒绝。`)) return;
+    try {
+      await api(`/api/mcp/servers/${server.id}`, { method: "DELETE" });
+      await load();
+      push("服务器已删除");
+    } catch (err) {
+      push(messageOf(err));
+    }
+  }
+
   async function showTools(id: number) {
     const data = await api<{ tools: { name: string; description: string }[] }>(`/api/mcp/servers/${id}/tools`);
     setTools((prev) => ({ ...prev, [id]: data.tools ?? [] }));
@@ -331,6 +409,7 @@ function ToolsPage({ me, push }: { me: Me; push: (text: string) => void }) {
               <button className="primary" type="button" onClick={() => void connect(server.id, true)}>连接</button>
               <button type="button" onClick={() => void connect(server.id, false)}>断开</button>
               <button type="button" onClick={() => void showTools(server.id)}>查看工具</button>
+              <button type="button" onClick={() => void remove(server)}>删除</button>
             </div>
           ) : null}
           {(tools[server.id] ?? []).map((tool) => (
@@ -352,7 +431,12 @@ function ToolsPage({ me, push }: { me: Me; push: (text: string) => void }) {
           <h2>最近调用</h2>
           {audits.length === 0 ? <p>还没有调用记录。</p> : null}
           {audits.map((item) => (
-            <p key={item.id}>{item.created_at} · {item.username || "未知用户"} · {item.ref} · {item.status} · {item.detail}</p>
+            <p key={item.id} className={`audit audit-${item.status}`}>
+              <strong>{statusLabel(item.status)}</strong> {item.ref} · {item.username || "未知用户"} ·{" "}
+              {item.conversation_id ? `对话 ${item.conversation_id} 第 ${item.round} 轮` : "对话外"} · {new Date(item.created_at).toLocaleString()}
+              <br />
+              <span className="muted">{item.detail}</span>
+            </p>
           ))}
         </section>
       ) : null}
@@ -435,6 +519,15 @@ function ChatPage({ push }: { me: Me; push: (text: string) => void }) {
             return next;
           });
         }
+        if (eventName === "tool") {
+          const use = data as ToolUse;
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last && last.role === "assistant") next[next.length - 1] = { ...last, tools: [...(last.tools ?? []), use] };
+            return next;
+          });
+        }
         if (eventName === "meta") {
           const meta = data as { skill?: { name?: string }; citations?: Cite[] };
           setMessages((prev) => {
@@ -489,11 +582,20 @@ function ChatPage({ push }: { me: Me; push: (text: string) => void }) {
         {messages.map((msg, index) => (
           <article key={`${msg.role}-${index}`} className={msg.role === "user" ? "ask-user" : "ask-card"}>
             {msg.role === "assistant" ? <h2>回答{msg.skill_name ? ` · ${msg.skill_name}` : ""}</h2> : null}
+            <ToolList tools={msg.tools ?? msg.trace?.tools} />
             <p>{msg.content}</p>
             {msg.citations?.length ? (
               <ol>
                 {msg.citations.map((cite, i) => (
-                  <li key={i}>[{i + 1}] {cite.title} · 切片 {cite.chunk_index}<br />{cite.excerpt}</li>
+                  <li key={i}>
+                    [{i + 1}]{" "}
+                    {cite.material_id ? (
+                      <a href={`/materials?id=${cite.material_id}`} target="_blank" rel="noreferrer">{cite.title}</a>
+                    ) : cite.title}{" "}
+                    · 切片 {cite.chunk_index}
+                    <br />
+                    {cite.excerpt}
+                  </li>
                 ))}
               </ol>
             ) : null}
@@ -509,6 +611,26 @@ function ChatPage({ push }: { me: Me; push: (text: string) => void }) {
       </section>
     </main>
   );
+}
+
+function ToolList({ tools }: { tools?: ToolUse[] }) {
+  if (!tools?.length) return null;
+  return (
+    <ul className="tool-uses">
+      {tools.map((use, i) => (
+        <li key={i} className={`audit-${use.status}`}>
+          用到工具 {use.ref} · {statusLabel(use.status)}
+          {use.detail ? `：${use.detail}` : ""}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function statusLabel(status: string) {
+  if (status === "ok") return "成功";
+  if (status === "denied") return "被拒";
+  return "出错";
 }
 
 function TraceView({ trace }: { trace: Trace }) {

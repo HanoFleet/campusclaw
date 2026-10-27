@@ -255,3 +255,9 @@ input:focus { outline: 2px solid color-mix(in srgb, var(--red) 55%, white); }
   .detail { border-left: 0; border-top: 1px solid var(--line); }
   .cards.grid { grid-template-columns: 1fr; }
 }
+.tool-uses { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; font-size: 0.88rem; }
+.tool-uses li { padding: 4px 8px; border-radius: 8px; background: rgba(22, 101, 52, 0.08); }
+.tool-uses li.audit-denied, .tool-uses li.audit-error { background: rgba(180, 35, 24, 0.08); }
+.audit { margin: 0 0 10px; line-height: 1.6; }
+.audit-ok strong { color: #166534; }
+.audit-denied strong, .audit-error strong { color: #b42318; }

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import { AskPage } from "./Ask";
 import { StudioGate } from "./studio";
@@ -229,6 +229,12 @@ function MaterialsPage({ me, push }: { me: Me; push: (text: string) => void }) {
     setView(next);
     localStorage.setItem("campusclaw-view", next);
   }
+
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const id = Number(searchParams.get("id") || 0);
+    if (id > 0) void openItem(id);
+  }, [searchParams]);
 
   async function openItem(id: number) {
     try {
