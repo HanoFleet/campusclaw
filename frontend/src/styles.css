@@ -236,8 +236,18 @@ input:focus { outline: 2px solid color-mix(in srgb, var(--red) 55%, white); }
 .conv { display: grid; text-align: left; border: 1px solid var(--line); background: var(--paper); border-radius: 12px; padding: 8px 10px; }
 .conv.active { border-color: var(--red); }
 .conv span { color: var(--muted); font-size: 0.85rem; }
+.studio-form input[type="checkbox"] { width: auto; margin-right: 6px; }
+.inline-check { display: flex; align-items: center; }
+.card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .trace { margin-top: 10px; }
 .trace summary { cursor: pointer; color: var(--red); }
+.trace-round { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 8px; }
+.trace-round h3 { margin: 0 0 2px; font-size: 0.9rem; }
+.trace-round > .muted { margin: 0 0 6px; font-size: 0.85rem; }
+.trace-block h4, .trace-raw h4 { margin: 10px 0 4px; font-size: 0.82rem; color: var(--muted); }
+.trace-block pre, .trace-raw pre { white-space: pre-wrap; word-break: break-word; margin: 0 0 8px; font: inherit; line-height: 1.6; }
+.trace-raw pre { font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; }
+.trace-reply pre { background: rgba(140, 0, 26, 0.05); border-radius: 8px; padding: 6px 8px; }
 
 @media (max-width: 800px) {
   .top { flex-wrap: wrap; }

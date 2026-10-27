@@ -21,16 +21,13 @@ type Audit = { id: number; ref: string; status: string; detail: string; username
 type Conv = { id: number; title: string; agent_id: number; agent_name: string };
 type Msg = { id?: number; role: string; content: string; skill_name?: string; citations?: Cite[]; trace?: Trace };
 type Cite = { title?: string; chunk_index?: number; excerpt?: string };
-type Trace = {
-  prompt_template?: string;
-  prompt_template_included?: boolean;
-  knowledge?: { sent_full_text?: boolean; hit_count?: number; bound_material_count?: number; note?: string };
-  skill?: { selected?: string | null; sent_full_skill_file?: boolean; other_bound_skills_omitted?: string[]; description_chars?: number };
-  skill_execution?: string;
-  mcp?: { note?: string; declarations_sent?: unknown[]; calls?: { ref: string; status: string; detail?: string }[] };
-  messages?: { role: string; content: string }[];
-  tools?: unknown[];
-};
+type SentCall = { id?: string; function?: { name?: string; arguments?: string } };
+type SentMessage = { role: string; content: string; tool_call_id?: string; tool_calls?: SentCall[] };
+type SentTool = { function?: { name?: string; description?: string; parameters?: unknown } };
+type ChatRequest = { model?: string; temperature?: number; messages?: SentMessage[]; tools?: SentTool[]; tool_choice?: string };
+type ChatResponse = { choices?: { message?: { content?: string | null; tool_calls?: SentCall[] } }[] };
+type Round = { request: ChatRequest; response: ChatResponse };
+type Trace = { skill?: string; rounds?: Round[] };
 
 export function StudioGate({ page, push }: { page: Page; push: (text: string) => void }) {
   const navigate = useNavigate();
@@ -84,6 +81,8 @@ function AppsPage({ me, push }: { me: Me; push: (text: string) => void }) {
   const [prompt, setPrompt] = useState("");
   const [skillIDs, setSkillIDs] = useState<number[]>([]);
   const [materialIDs, setMaterialIDs] = useState<number[]>([]);
+  const [enabled, setEnabled] = useState(true);
+  const [editing, setEditing] = useState(0);
 
   async function load() {
     const [a, s, m] = await Promise.all([
@@ -99,15 +98,38 @@ function AppsPage({ me, push }: { me: Me; push: (text: string) => void }) {
     load().catch((err) => push(messageOf(err)));
   }, []);
 
-  async function create(event: FormEvent) {
+  function reset() {
+    setEditing(0);
+    setName("");
+    setPrompt("");
+    setSkillIDs([]);
+    setMaterialIDs([]);
+    setEnabled(true);
+  }
+
+  async function edit(agent: Agent) {
+    try {
+      const full = await api<Agent>(`/api/agents/${agent.id}`);
+      setEditing(full.id);
+      setName(full.name);
+      setPrompt(full.prompt);
+      setSkillIDs(full.skill_ids ?? []);
+      setMaterialIDs(full.material_ids ?? []);
+      setEnabled(full.enabled);
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    } catch (err) {
+      push(messageOf(err));
+    }
+  }
+
+  async function save(event: FormEvent) {
     event.preventDefault();
     try {
-      await api("/api/agents", {
-        method: "POST",
-        body: JSON.stringify({ name, prompt, enabled: true, skill_ids: skillIDs, material_ids: materialIDs }),
+      await api(editing ? `/api/agents/${editing}` : "/api/agents", {
+        method: editing ? "PUT" : "POST",
+        body: JSON.stringify({ name, prompt, enabled, skill_ids: skillIDs, material_ids: materialIDs }),
       });
-      setName("");
-      setPrompt("");
+      reset();
       await load();
       push("应用已保存");
     } catch (err) {
@@ -132,15 +154,18 @@ function AppsPage({ me, push }: { me: Me; push: (text: string) => void }) {
             <h2>{agent.name}</h2>
             <p>{agent.prompt || "没有填写提示词，回答时会用默认角色。"}</p>
             <p className="muted">{agent.enabled ? "已启用" : "已停用"}</p>
-            <button className="primary" type="button" onClick={() => void start(agent)} disabled={!agent.enabled}>
-              用这个对话
-            </button>
+            <div className="card-actions">
+              <button className="primary" type="button" onClick={() => void start(agent)} disabled={!agent.enabled}>
+                用这个对话
+              </button>
+              {me.role === "teacher" ? <button type="button" onClick={() => void edit(agent)}>修改</button> : null}
+            </div>
           </article>
         ))}
       </div>
       {me.role === "teacher" ? (
-        <form className="ask-card studio-form" onSubmit={create}>
-          <h2>新建应用</h2>
+        <form className="ask-card studio-form" onSubmit={save}>
+          <h2>{editing ? `修改应用：${name}` : "新建应用"}</h2>
           <label>名称<input value={name} onChange={(e) => setName(e.target.value)} required maxLength={64} /></label>
           <label>提示词<textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} maxLength={2000} placeholder="这个助手是谁、用什么口气说话" /></label>
           <fieldset>
@@ -148,7 +173,7 @@ function AppsPage({ me, push }: { me: Me; push: (text: string) => void }) {
             {skills.map((skill) => (
               <label key={skill.id}>
                 <input type="checkbox" checked={skillIDs.includes(skill.id)} onChange={() => setSkillIDs(toggle(skillIDs, skill.id))} />
-                {skill.name}
+                {skill.name}{skill.enabled ? "" : "（未启用）"}
               </label>
             ))}
           </fieldset>
@@ -161,7 +186,14 @@ function AppsPage({ me, push }: { me: Me; push: (text: string) => void }) {
               </label>
             ))}
           </fieldset>
-          <button className="primary" type="submit">保存</button>
+          <label className="inline-check">
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+            启用
+          </label>
+          <div className="card-actions">
+            <button className="primary" type="submit">保存</button>
+            {editing ? <button type="button" onClick={reset}>取消修改</button> : null}
+          </div>
         </form>
       ) : null}
     </main>
@@ -480,22 +512,69 @@ function ChatPage({ push }: { me: Me; push: (text: string) => void }) {
 }
 
 function TraceView({ trace }: { trace: Trace }) {
-  const skill = trace.skill ?? {};
-  const knowledge = trace.knowledge ?? {};
-  const mcp = trace.mcp ?? {};
+  const rounds = trace.rounds ?? [];
+  if (!rounds.length) return null;
   return (
-    <details className="trace" open>
-      <summary>这次发给模型的内容</summary>
-      <p>提示词模板会放进系统消息。本次{trace.prompt_template_included ? "已带上" : "没有带上"}：{trace.prompt_template}</p>
-      <p>知识库没有整库传递。绑定了 {knowledge.bound_material_count ?? 0} 份材料，实际送进去 {knowledge.hit_count ?? 0} 条检索片段。全文传递：{String(knowledge.sent_full_text)}</p>
-      <p>技能全文传递：{String(skill.sent_full_skill_file)}。选中的是 {skill.selected || "无"}，只传了这条说明（{skill.description_chars ?? 0} 字）。没有选中的技能：{(skill.other_bound_skills_omitted ?? []).join("、") || "无"}。</p>
-      <p>{trace.skill_execution}</p>
-      <p>{mcp.note}</p>
-      {(mcp.calls ?? []).map((call) => (
-        <p key={call.ref}>工具 {call.ref} · {call.status} · {call.detail}</p>
+    <details className="trace">
+      <summary>模型调用记录（共 {rounds.length} 次请求）</summary>
+      {rounds.map((round, index) => (
+        <RoundView key={index} index={index + 1} round={round} />
       ))}
     </details>
   );
+}
+
+function RoundView({ index, round }: { index: number; round: Round }) {
+  const req = round.request ?? {};
+  const reply = round.response?.choices?.[0]?.message;
+  const params = [`model：${req.model ?? ""}`, `temperature：${req.temperature ?? ""}`];
+  if (req.tool_choice) params.push(`tool_choice：${req.tool_choice}`);
+  return (
+    <div className="trace-round">
+      <h3>第 {index} 次请求</h3>
+      <p className="muted">{params.join(" · ")}</p>
+      {(req.messages ?? []).map((message, i) => (
+        <div className="trace-block" key={i}>
+          <h4>messages[{i}] · {roleLabel(message.role)}</h4>
+          {message.content ? <pre>{message.content}</pre> : null}
+          {message.tool_calls?.map((call, j) => (
+            <pre key={j}>{`调用 ${call.function?.name ?? ""}，参数 ${call.function?.arguments ?? ""}`}</pre>
+          ))}
+        </div>
+      ))}
+      {req.tools?.length ? (
+        <div className="trace-block">
+          <h4>tools · 可调用的工具</h4>
+          {req.tools.map((tool, i) => (
+            <pre key={i}>
+              {`${tool.function?.name ?? ""}\n${tool.function?.description ?? ""}\n${JSON.stringify(tool.function?.parameters ?? {}, null, 2)}`}
+            </pre>
+          ))}
+        </div>
+      ) : null}
+      <div className="trace-block trace-reply">
+        <h4>模型返回</h4>
+        {reply?.content ? <pre>{reply.content}</pre> : null}
+        {reply?.tool_calls?.map((call, j) => (
+          <pre key={j}>{`要求调用 ${call.function?.name ?? ""}，参数 ${call.function?.arguments ?? ""}`}</pre>
+        ))}
+      </div>
+      <details className="trace-raw">
+        <summary>原始 JSON</summary>
+        <h4>请求体</h4>
+        <pre>{JSON.stringify(round.request, null, 2)}</pre>
+        <h4>返回体</h4>
+        <pre>{JSON.stringify(round.response, null, 2)}</pre>
+      </details>
+    </div>
+  );
+}
+
+function roleLabel(role: string) {
+  if (role === "system") return "系统消息";
+  if (role === "user") return "用户消息";
+  if (role === "tool") return "工具结果";
+  return "助手消息";
 }
 
 async function readSSE(res: Response, onEvent: (name: string, data: unknown) => void) {
